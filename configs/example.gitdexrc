@@ -1,0 +1,19 @@
+# Project-level configuration for gitdex
+# Place this file as .gitdexrc in your project root
+
+suggestion:
+  mode: "zen"
+  language: "auto"
+
+llm:
+  provider: "ollama"
+  endpoint: "http://localhost:11434"
+  primary:
+    model: "qwen2.5:3b"
+    enabled: true
+  secondary:
+    model: ""
+    enabled: false
+
+i18n:
+  language: "auto"

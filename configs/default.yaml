@@ -1,0 +1,14 @@
+suggestion:
+  mode: "zen"
+  language: "auto"
+llm:
+  provider: "ollama"
+  model: "qwen2.5:3b"
+  endpoint: "http://localhost:11434"
+safety:
+  auto_snapshot: true
+  confirm_destructive: true
+theme:
+  name: "dark"
+i18n:
+  language: "auto"
