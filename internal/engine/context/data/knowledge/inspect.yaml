@@ -1,0 +1,26 @@
+scenarios:
+  - id: daily_check
+    triggers:
+      always: true
+    sop: |
+      日常检查四件套:
+      1. git status -sb — 判断当前分支、工作区与暂存区状态
+      2. git diff — 确认工作区改动内容
+      3. git diff --staged — 确认即将提交的内容
+      4. git log --oneline --graph -10 — 把当前改动放回时间线
+      补充: git blame <file> — 追溯某行最后由谁修改
+    pitfalls:
+      - git diff 只显示未暂存的改动，已 add 的不会出现
+      - git diff --staged 显示的才是下次 commit 真正会提交的内容
+
+  - id: detached_head
+    triggers:
+      detached_head: true
+    sop: |
+      当前处于 detached HEAD 状态:
+      1. git status 查看当前位置
+      2. 如果只是查看: git switch <branch> 回到正常分支
+      3. 如果需要保留改动: git switch -c <new-branch> 创建新分支
+    pitfalls:
+      - 在 detached HEAD 上的提交如果不创建分支指向它，可能会丢失
+      - 不要在 detached HEAD 上进行日常开发

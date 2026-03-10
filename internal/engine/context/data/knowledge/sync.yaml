@@ -1,0 +1,57 @@
+scenarios:
+  - id: safe_sync_sop
+    triggers:
+      has_upstream: true
+    sop: |
+      安全同步标准流程:
+      1. git fetch --prune — 获取远端最新快照（不改工作区）
+      2. git log --left-right --count @{u}...HEAD — 判断本地与上游关系
+      3. 根据关系选择:
+         behind → git merge --ff-only @{u}
+         diverged → git merge @{u} 或 git rebase @{u}
+         ahead/clean → 直接 git push
+      4. git push
+    pitfalls:
+      - git pull 是 fetch + integrate 的封装，先拆开理解
+      - 推送被拒绝时先回到 fetch→判断→integrate，不要直接 force
+
+  - id: diverged_integration
+    triggers:
+      ahead_gt: 0
+      behind_gt: 0
+    sop: |
+      本地与远端已分叉（diverged），需要整合:
+      1. git fetch --prune
+      2. 选择策略:
+         merge: git merge @{u} — 保留真实整合关系
+         rebase: git rebase @{u} — 保持线性历史（仅限未发布分支）
+      3. 解决可能的冲突
+      4. git push
+    pitfalls:
+      - 已发布的公共分支不要 rebase
+      - 分叉时直接 push 会被拒绝
+
+  - id: first_push
+    triggers:
+      has_upstream: false
+      has_remote: true
+      commit_count_gt: 0
+    sop: |
+      首次推送到远端:
+      1. 确认远端 URL: git remote -v
+      2. git push -u origin HEAD
+      -u 设置 upstream 追踪关系，后续 git push 不需要再指定远端
+    pitfalls:
+      - 使用 HEAD 而非分支名，避免分支名不匹配的问题
+      - 推送前确认远端 URL 正确且可访问
+
+  - id: upstream_behind
+    triggers:
+      behind_gt: 0
+      ahead: 0
+    sop: |
+      本地落后于上游（behind only）:
+      git merge --ff-only @{u}
+      这是最安全的情况，本地没有独有提交，可以快进合并
+    pitfalls:
+      - 如果工作区不干净，先 stash 或 commit 再拉取

@@ -1,0 +1,60 @@
+workflows:
+  - id: submit_pr
+    label: "提交 Pull Request"
+    goal: "Create and submit a Pull Request for the current branch"
+    prerequisites: ["has_remote", "has_commits_ahead"]
+
+  - id: sync_upstream
+    label: "同步上游仓库"
+    goal: "Sync fork with upstream repository"
+    prerequisites: ["has_upstream_remote"]
+
+  - id: revert_commit
+    label: "回退提交"
+    goal: "Safely revert one or more recent commits"
+
+  - id: release
+    label: "发布版本"
+    goal: "Tag and push a new release"
+
+  - id: resolve_conflicts
+    label: "解决冲突"
+    goal: "Resolve current merge/rebase conflicts"
+    prerequisites: ["merge_in_progress|rebase_in_progress"]
+
+  - id: branch_cleanup
+    label: "清理分支"
+    goal: "Delete merged or stale branches"
+
+  - id: partial_stage
+    label: "分阶段暂存"
+    goal: "Selectively stage changes using git add -p for precise commit boundaries"
+
+  - id: generate_commit_msg
+    label: "AI 生成提交消息"
+    goal: "Auto-generate a conventional commit message from staged diff using LLM"
+
+  - id: recovery_triage
+    label: "撤销/恢复"
+    goal: "Diagnose the situation and suggest the safest undo/restore strategy (restore, reset, revert, or reflog)"
+
+  - id: history_cleanup
+    label: "历史整理"
+    goal: "Clean up commit history using interactive rebase (squash, fixup, reword)"
+
+  - id: setup_auth
+    label: "配置认证"
+    goal: "Set up Git identity (user.name, user.email), SSH keys, and credential helpers"
+
+  - id: inspect_full
+    label: "全面检查"
+    goal: "Run a comprehensive repository health check: status, diff, log, config, and remote connectivity"
+
+  - id: safe_sync
+    label: "安全同步"
+    goal: "Safely sync with remote using fetch-inspect-integrate-push flow instead of blind git pull"
+    prerequisites: ["has_remote"]
+
+  - id: stash_manage
+    label: "暂存管理"
+    goal: "Save current work-in-progress to stash, or restore previously stashed changes"

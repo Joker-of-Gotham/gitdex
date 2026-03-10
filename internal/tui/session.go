@@ -1,0 +1,97 @@
+package tui
+
+import (
+	"strings"
+	"time"
+
+	"github.com/Joker-of-Gotham/gitdex/internal/llm/prompt"
+)
+
+type GoalRecord struct {
+	Goal      string    `json:"goal"`
+	Status    string    `json:"status"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+type SessionContext struct {
+	ActiveGoal     string            `json:"active_goal,omitempty"`
+	GoalHistory    []GoalRecord      `json:"goal_history,omitempty"`
+	SkippedActions []string          `json:"skipped_actions,omitempty"`
+	Preferences    map[string]string `json:"preferences,omitempty"`
+	ResolvedIssues []string          `json:"resolved_issues,omitempty"`
+}
+
+const (
+	maxGoalHistory    = 20
+	maxSkippedActions = 30
+	maxResolvedIssues = 20
+)
+
+func (s *SessionContext) addResolvedIssue(issue string) {
+	issue = strings.TrimSpace(issue)
+	if issue == "" || s == nil {
+		return
+	}
+	s.ResolvedIssues = append(s.ResolvedIssues, issue)
+	if len(s.ResolvedIssues) > maxResolvedIssues {
+		s.ResolvedIssues = s.ResolvedIssues[len(s.ResolvedIssues)-maxResolvedIssues:]
+	}
+}
+
+func (s *SessionContext) addSkipped(action string) {
+	action = strings.TrimSpace(action)
+	if action == "" || s == nil {
+		return
+	}
+	s.SkippedActions = append(s.SkippedActions, action)
+	if len(s.SkippedActions) > maxSkippedActions {
+		s.SkippedActions = s.SkippedActions[len(s.SkippedActions)-maxSkippedActions:]
+	}
+}
+
+func (s *SessionContext) trimHistory() {
+	if s == nil {
+		return
+	}
+	if len(s.GoalHistory) > maxGoalHistory {
+		s.GoalHistory = s.GoalHistory[len(s.GoalHistory)-maxGoalHistory:]
+	}
+}
+
+func (s SessionContext) ToPromptContext() prompt.SessionContext {
+	out := prompt.SessionContext{
+		ActiveGoal:     strings.TrimSpace(s.ActiveGoal),
+		SkippedActions: append([]string(nil), s.SkippedActions...),
+		Preferences:    map[string]string{},
+	}
+	out.GoalHistory = make([]prompt.GoalRecord, 0, len(s.GoalHistory))
+	for _, h := range s.GoalHistory {
+		out.GoalHistory = append(out.GoalHistory, prompt.GoalRecord{
+			Goal:      h.Goal,
+			Status:    h.Status,
+			Timestamp: h.Timestamp.Format(time.RFC3339),
+		})
+	}
+	for k, v := range s.Preferences {
+		out.Preferences[k] = v
+	}
+	return out
+}
+
+func (s *SessionContext) markGoalStatus(status string) {
+	if s == nil {
+		return
+	}
+	goal := strings.TrimSpace(s.ActiveGoal)
+	if goal == "" {
+		return
+	}
+	s.GoalHistory = append(s.GoalHistory, GoalRecord{
+		Goal:      goal,
+		Status:    strings.TrimSpace(status),
+		Timestamp: time.Now(),
+	})
+	if status == "completed" {
+		s.ActiveGoal = ""
+	}
+}

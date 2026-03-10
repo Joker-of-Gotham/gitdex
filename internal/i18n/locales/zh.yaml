@@ -1,0 +1,178 @@
+app:
+  name: "gitdex"
+
+ui:
+  loading: "加载中..."
+  ready: "就绪"
+  refreshing: "刷新中..."
+
+status_bar:
+  format: "Git %s | Ollama: %s | 语言: %s | AI 模式: %s"
+
+action_bar:
+  main: "q:退出  y:接受  n:跳过  w:原因  z:聚焦/全量  r:刷新  l:日志  tab:下一条"
+  thinking: "t:思考"
+  log_scroll: "up/down/pgup/pgdn:滚动日志"
+
+header:
+  modified: "%d 已修改"
+  untracked: "%d 未跟踪"
+  staged: "%d 已暂存"
+  stash: "%d stash"
+
+welcome:
+  title: "欢迎使用 gitdex"
+  git_ok: "Git: %s 正常"
+  git_missing: "Git: 未找到"
+  ollama_status: "Ollama: %s"
+  waiting: "正在等待 Git 状态..."
+
+language_select:
+  title: "选择界面语言"
+  first_run_title: "欢迎使用 gitdex，请先选择语言"
+  hint: "使用 up/down 或 jk 移动，Enter 确认"
+  current: "当前设置: %s"
+  system: "检测到的系统语言: %s"
+  prompt: "选择语言后按 Enter"
+  cancelled: "已取消语言选择"
+  saved: "语言偏好已保存"
+  failed: "保存语言偏好失败"
+
+model_select:
+  title: "检测到 Ollama，请选择模型"
+  secondary_title: "选择二级校验模型"
+  hint: "使用 up/down 或 jk 移动，Enter 确认，s 跳过"
+  secondary_hint: "使用 up/down 或 jk 移动，Enter 确认，s 跳过校验模型"
+  found: "在 localhost:11434 检测到 %d 个模型"
+  skipped: "已跳过模型选择；AI 功能已关闭"
+  primary_selected: "主模型: %s（请选择校验模型，或按 s 跳过）"
+  summary_on: "主模型: %s | 校验: %s"
+  summary_off: "主模型: %s | 校验: 关闭"
+
+input:
+  preview: "预览: $ %s"
+  footer: "Enter: 确认"
+  footer_tab: "Tab: 下一个字段"
+  footer_paste: "支持粘贴  Esc: 取消"
+  empty: "输入值不能为空"
+  missing_fields: "AI 输入请求缺少字段定义"
+  cancelled: "已取消输入"
+
+goal:
+  title: "设置当前目标"
+  hint: "Enter: 保存目标并触发分析 | Esc: 取消"
+  placeholder: "例如：发起 PR 并通过 CI"
+  prompt: "输入目标后按 Enter"
+  cancelled: "已取消目标输入"
+  cleared: "目标已清空"
+  active: "当前目标: %s"
+
+workflow_menu:
+  title: "工作流菜单"
+  hint: "使用 up/down 或 jk 移动，Enter 设置目标，Esc 返回"
+  prompt: "选择工作流后按 Enter"
+  no_workflows: "当前没有可用工作流"
+  selected: "已选择工作流: %s"
+  blocked: "工作流前置条件不满足: %s"
+
+analysis:
+  title: "AI 分析"
+  no_ollama: "请先启动 Ollama，然后重新打开以启用 AI 建议"
+  no_suggestions: "AI 没有针对当前仓库状态生成可执行建议"
+  clean: "AI 判断当前没有紧急的 Git 操作需要处理"
+  analyzing: "AI 正在分析仓库状态..."
+  analyzing_repo: "AI 正在分析你的仓库..."
+  reanalyzing: "AI 正在重新分析..."
+  in_progress_status: "AI 分析中..."
+  error_prefix: "AI 错误: %s"
+  explain_failed: "AI 解释失败，已回退到基础原因"
+  asking_explanation: "正在请求 AI 解释..."
+  thinking_pending: "%s（AI 正在思考...）"
+
+oplog:
+  title: "操作日志"
+  collapsed: "折叠"
+  expanded: "展开"
+  toggle: "l:切换"
+  scroll: "up/down/pgup/pgdn:滚动"
+  empty: "(暂无操作记录)"
+
+areas:
+  title: "Git 区域"
+
+thinking:
+  title: "思考"
+  truncated: "...（思考内容已截断）"
+  unavailable: "当前模型没有暴露 reasoning 文本。"
+  text: "思考文本:"
+
+file_status:
+  staged: "暂存区 (%d)"
+  changes: "工作区变更 (%d)"
+
+suggestions:
+  title: "建议 (%d)"
+  title_done: "建议 (%d/%d 已完成)"
+  advisory: "(仅查看；不会执行命令；按 y 标记为已查看)"
+  file_write: "(文件写入)"
+  fill_in: "-> 按 y 填写参数"
+  already_processed: "该建议已经处理过"
+  viewed: "已查看"
+  skipped: "已跳过"
+  keybinds: "[y]接受 [n]跳过 [w]原因"
+  why_prefix: "原因: %s"
+
+observability:
+  title: "可观测性"
+  hint: "o/O: 切换面板"
+  inspector_status: "当前面板: %s"
+  tab_workflow: "工作流"
+  tab_timeline: "时间线"
+  tab_context: "上下文"
+  tab_memory: "记忆"
+  tab_raw: "原始输出"
+  tab_result: "结果"
+  tab_thinking: "思考"
+  workflow_waiting: "等待状态"
+  workflow_current: "当前阶段: %s"
+  workflow_goal: "目标: %s"
+  workflow_goal_status: "目标状态: %s"
+  workflow_suggestions: "建议: 总数=%d 待处理=%d 已完成=%d"
+  workflow_executing: "执行中: %s"
+  workflow_last_result: "最近结果: %s | %s"
+  workflow_updated: "更新时间: %s"
+  workflow_recent_events: "最近事件:"
+  timeline_title: "统一事件流:"
+  context_mode: "模式: %s"
+  context_models: "模型: %s | 校验=%s"
+  context_budget: "预算: 总计=%d 预留=%d 可用=%d"
+  context_summary: "摘要: %s"
+  context_partitions: "分区:"
+  context_knowledge: "知识命中:"
+  context_recent_ops: "Prompt 中的最近操作: %d"
+  context_prompt_excerpt: "Prompt 摘要:"
+  context_system_excerpt: "System 摘要:"
+  memory_repo: "仓库记忆: %s"
+  memory_path: "路径: %s"
+  memory_updated: "更新时间: %s"
+  memory_none: "当前还没有持久化记忆。"
+  memory_preferences: "偏好:"
+  memory_patterns: "仓库模式:"
+  memory_resolved: "已解决目标:"
+  memory_session_goals: "会话目标历史:"
+  memory_skipped: "已跳过操作:"
+  raw_response: "原始响应:"
+  raw_none: "(当前没有记录原始响应)"
+  raw_structured: "结构化文本:"
+  raw_cleaned_none: "(当前没有清洗后的文本)"
+  raw_rejected: "被拒绝的建议:"
+  result_none: "当前还没有命令或 advisory 结果。"
+  result_recent: "最近结果:"
+  result_status: "状态: %s"
+  result_target: "目标: %s"
+  result_time: "时间: %s"
+  result_output: "输出:"
+
+messages:
+  info_prefix: "提示: %s"
+  executing: "执行中: %s"

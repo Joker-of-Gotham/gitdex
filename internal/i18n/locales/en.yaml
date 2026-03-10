@@ -1,0 +1,178 @@
+app:
+  name: "gitdex"
+
+ui:
+  loading: "Loading..."
+  ready: "Ready"
+  refreshing: "Refreshing..."
+
+status_bar:
+  format: "Git %s | Ollama: %s | Lang: %s | AI mode: %s"
+
+action_bar:
+  main: "q:quit  y:accept  n:skip  w:why  z:focus/full  r:refresh  l:log  tab:next"
+  thinking: "t:thinking"
+  log_scroll: "up/down/pgup/pgdn:log-scroll"
+
+header:
+  modified: "%d modified"
+  untracked: "%d untracked"
+  staged: "%d staged"
+  stash: "%d stash"
+
+welcome:
+  title: "Welcome to gitdex"
+  git_ok: "Git: %s OK"
+  git_missing: "Git: not found"
+  ollama_status: "Ollama: %s"
+  waiting: "Waiting for Git status..."
+
+language_select:
+  title: "Choose interface language"
+  first_run_title: "Welcome to gitdex - choose your language"
+  hint: "Use up/down or jk to move, Enter to confirm"
+  current: "Current setting: %s"
+  system: "Detected system language: %s"
+  prompt: "Choose a language and press Enter"
+  cancelled: "Language selection cancelled"
+  saved: "Language preference saved"
+  failed: "Could not save language preference"
+
+model_select:
+  title: "Ollama detected - select a model"
+  secondary_title: "Select secondary verifier model"
+  hint: "Use up/down or jk to move, Enter to confirm, s to skip"
+  secondary_hint: "Use up/down or jk to move, Enter to confirm, s to skip verifier"
+  found: "Found %d model(s) on localhost:11434"
+  skipped: "Skipped model selection; AI features disabled"
+  primary_selected: "Primary model: %s (choose verifier model, or press s to skip)"
+  summary_on: "Primary: %s | Verify: %s"
+  summary_off: "Primary: %s | Verify: off"
+
+input:
+  preview: "Preview: $ %s"
+  footer: "Enter: confirm"
+  footer_tab: "Tab: next field"
+  footer_paste: "Paste supported  Esc: cancel"
+  empty: "Value cannot be empty"
+  missing_fields: "AI input request is missing fields"
+  cancelled: "Input cancelled"
+
+goal:
+  title: "Set active goal"
+  hint: "Enter: save goal and trigger analysis | Esc: cancel"
+  placeholder: "Example: open a PR and pass CI"
+  prompt: "Set goal and press Enter"
+  cancelled: "Goal input cancelled"
+  cleared: "Goal cleared"
+  active: "Active goal: %s"
+
+workflow_menu:
+  title: "Workflow menu"
+  hint: "Use up/down or jk to move, Enter to set goal, Esc to return"
+  prompt: "Select a workflow and press Enter"
+  no_workflows: "No workflows configured"
+  selected: "Workflow selected: %s"
+  blocked: "Workflow prerequisites not met: %s"
+
+analysis:
+  title: "AI analysis"
+  no_ollama: "Start Ollama and restart to enable AI-powered suggestions"
+  no_suggestions: "AI did not produce actionable suggestions for the current repository state"
+  clean: "AI found no urgent Git action to recommend right now"
+  analyzing: "AI is analyzing repository state..."
+  analyzing_repo: "AI is analyzing your repository..."
+  reanalyzing: "AI is re-analyzing..."
+  in_progress_status: "AI analysis in progress..."
+  error_prefix: "AI error: %s"
+  explain_failed: "AI explanation failed; showing base reason"
+  asking_explanation: "Asking AI for explanation..."
+  thinking_pending: "%s (AI thinking...)"
+
+oplog:
+  title: "Operation Log"
+  collapsed: "collapsed"
+  expanded: "expanded"
+  toggle: "l:toggle"
+  scroll: "up/down/pgup/pgdn:scroll"
+  empty: "(no operations yet)"
+
+areas:
+  title: "Git Areas"
+
+thinking:
+  title: "Reasoning"
+  truncated: "... (reasoning truncated)"
+  unavailable: "The current model did not expose reasoning text."
+  text: "Reasoning text:"
+
+file_status:
+  staged: "Staged (%d)"
+  changes: "Changes (%d)"
+
+suggestions:
+  title: "Suggestions (%d)"
+  title_done: "Suggestions (%d/%d done)"
+  advisory: "(view only; no command will run; press y to mark reviewed)"
+  file_write: "(file write)"
+  fill_in: "-> press y to fill in"
+  already_processed: "Suggestion already processed"
+  viewed: "viewed"
+  skipped: "skipped"
+  keybinds: "[y]accept [n]skip [w]why"
+  why_prefix: "Why: %s"
+
+observability:
+  title: "Observability"
+  hint: "o/O: inspector"
+  inspector_status: "Inspector: %s"
+  tab_workflow: "Workflow"
+  tab_timeline: "Timeline"
+  tab_context: "Context"
+  tab_memory: "Memory"
+  tab_raw: "Raw"
+  tab_result: "Result"
+  tab_thinking: "Thinking"
+  workflow_waiting: "Waiting for state"
+  workflow_current: "Current stage: %s"
+  workflow_goal: "Goal: %s"
+  workflow_goal_status: "Goal status: %s"
+  workflow_suggestions: "Suggestions: total=%d pending=%d done=%d"
+  workflow_executing: "Executing: %s"
+  workflow_last_result: "Last result: %s | %s"
+  workflow_updated: "Updated: %s"
+  workflow_recent_events: "Recent events:"
+  timeline_title: "Unified event stream:"
+  context_mode: "Mode: %s"
+  context_models: "Models: %s | verify=%s"
+  context_budget: "Budget: total=%d reserved=%d usable=%d"
+  context_summary: "Summary: %s"
+  context_partitions: "Partitions:"
+  context_knowledge: "Knowledge:"
+  context_recent_ops: "Recent ops in prompt: %d"
+  context_prompt_excerpt: "Prompt excerpt:"
+  context_system_excerpt: "System excerpt:"
+  memory_repo: "Repo memory: %s"
+  memory_path: "Path: %s"
+  memory_updated: "Updated: %s"
+  memory_none: "No persisted memory yet."
+  memory_preferences: "Preferences:"
+  memory_patterns: "Repo patterns:"
+  memory_resolved: "Resolved goals:"
+  memory_session_goals: "Session goal history:"
+  memory_skipped: "Skipped actions:"
+  raw_response: "Raw response:"
+  raw_none: "(no raw response captured)"
+  raw_structured: "Structured text:"
+  raw_cleaned_none: "(no cleaned response)"
+  raw_rejected: "Rejected suggestions:"
+  result_none: "No command or advisory result yet."
+  result_recent: "Recent results:"
+  result_status: "Status: %s"
+  result_target: "Target: %s"
+  result_time: "Time: %s"
+  result_output: "Output:"
+
+messages:
+  info_prefix: "Info: %s"
+  executing: "Executing: %s"

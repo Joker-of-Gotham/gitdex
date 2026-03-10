@@ -1,0 +1,29 @@
+commit:
+  requires_message: true
+  message_flags:
+    - "-m"
+    - "--message"
+  skip_message_flags:
+    - "--amend"
+    - "--no-edit"
+    - "--allow-empty-message"
+  default_input_label: "Commit message"
+  default_input_placeholder: "feat: summarize staged changes"
+
+remote:
+  default_label: "Remote URL"
+
+checkout:
+  default_label: "Branch name"
+
+branch:
+  default_label: "Branch name"
+
+switch:
+  default_label: "Branch name"
+
+tag:
+  default_label: "Tag name"
+
+clone:
+  default_label: "Repository URL"

@@ -1,0 +1,53 @@
+scenarios:
+  - id: fresh_repo_setup
+    triggers:
+      is_initial: true
+      commit_count: 0
+    sop: |
+      1. git status -sb 确认当前分支与仓库状态
+      2. 确认 user.name 和 user.email 已配置
+      3. 创建 .gitignore（根据项目语言/框架选择模板）
+      4. 创建 .gitattributes（行尾规范）
+      5. git add .gitignore .gitattributes
+      6. git commit -m "chore: initial project setup"
+    pitfalls:
+      - 不要在没有 .gitignore 的情况下执行 git add . 或 git add -A
+      - 新文件必须先显式 git add，git commit -a 不会包含未追踪文件
+
+  - id: identity_not_configured
+    triggers:
+      identity_configured: false
+    sop: |
+      1. git config user.name "Your Name"
+      2. git config user.email "your@email.com"
+      如需全局生效加 --global
+    pitfalls:
+      - 没有配置身份会导致 commit 失败或使用错误身份
+
+  - id: gitignore_setup
+    triggers:
+      is_initial: true
+      has_gitignore: false
+    sop: |
+      根据项目类型创建 .gitignore:
+      - Go: bin/, *.exe, vendor/ (if not vendoring)
+      - Node: node_modules/, dist/, .env
+      - Python: __pycache__/, *.pyc, .venv/
+      - General: .DS_Store, Thumbs.db, *.log, .idea/, .vscode/
+    pitfalls:
+      - 已被 git 跟踪的文件不会被新增的 .gitignore 规则忽略
+      - 需要 git rm --cached <file> 移除已跟踪但应忽略的文件
+
+  - id: ssh_auth_setup
+    triggers:
+      ssh_keys_empty: true
+      has_remote: true
+    sop: |
+      1. ssh-keygen -t ed25519 -C "your@email.com"
+      2. eval "$(ssh-agent -s)" && ssh-add ~/.ssh/id_ed25519
+      3. 将 ~/.ssh/id_ed25519.pub 内容添加到 GitHub/GitLab SSH Keys
+      4. ssh -T git@github.com 测试连接
+      5. git remote set-url origin git@github.com:user/repo.git
+    pitfalls:
+      - Windows 上需确认 ssh-agent 服务已启动
+      - 使用 HTTPS 远端时不需要 SSH key，但需要 PAT 或凭证管理器

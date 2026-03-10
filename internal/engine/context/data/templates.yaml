@@ -1,0 +1,14 @@
+input_defaults:
+  remote_url:
+    ssh: "git@github.com:user/repo.git"
+    https: "https://github.com/user/repo.git"
+  generic:
+    default: "Enter value..."
+
+label_hints:
+  - match: ["url", "github.com", "git@"]
+    label: "Remote URL"
+  - match: ["branch", "feature/"]
+    label: "Branch name"
+  - match: ["message", "commit"]
+    label: "Commit message"
