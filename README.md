@@ -19,6 +19,14 @@
     <a href="docs/PUBLISHING_TO_GITHUB.md"><img alt="publishing" src="https://img.shields.io/badge/Publishing-v1.0.0-10304F?style=flat-square" /></a>
   </p>
   <p>
+    <a href="README.md"><img alt="readme" src="https://img.shields.io/badge/Readme-Product%20Guide-173B63?style=flat-square" /></a>
+    <a href="LICENSE"><img alt="mit license" src="https://img.shields.io/badge/License-MIT-F2B15A?style=flat-square&labelColor=6F4611" /></a>
+    <a href="CODE_OF_CONDUCT.md"><img alt="code of conduct" src="https://img.shields.io/badge/Community-Code%20of%20Conduct-DCEFF7?style=flat-square&labelColor=31556F" /></a>
+    <a href="CONTRIBUTING.md"><img alt="contributing" src="https://img.shields.io/badge/Contributing-PR%20Guide-10304F?style=flat-square" /></a>
+    <a href="SECURITY.md"><img alt="security policy" src="https://img.shields.io/badge/Security-Policy-31556F?style=flat-square" /></a>
+    <a href="https://github.com/Joker-of-Gotham/gitdex/releases/latest"><img alt="latest assets" src="https://img.shields.io/badge/Assets-Latest%20Release-173B63?style=flat-square" /></a>
+  </p>
+  <p>
     <img alt="topic git" src="https://img.shields.io/badge/git-workflow-173B63?style=flat-square" />
     <img alt="topic tui" src="https://img.shields.io/badge/terminal-ui-10304F?style=flat-square" />
     <img alt="topic ollama" src="https://img.shields.io/badge/ollama-local--first-F2B15A?style=flat-square&labelColor=6F4611" />

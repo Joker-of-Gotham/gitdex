@@ -8,6 +8,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const configFileMode = 0o600
+
 // SaveGlobal writes the current config into the new global config location.
 func SaveGlobal(c *Config) error {
 	if c == nil {
@@ -22,15 +24,15 @@ func SaveGlobal(c *Config) error {
 	if err != nil {
 		return fmt.Errorf("config save: resolve path: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("config save: mkdir: %w", err)
+	if mkdirErr := os.MkdirAll(filepath.Dir(path), 0o755); mkdirErr != nil {
+		return fmt.Errorf("config save: mkdir: %w", mkdirErr)
 	}
 
 	data, err := yaml.Marshal(c)
 	if err != nil {
 		return fmt.Errorf("config save: marshal: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(path, data, configFileMode); err != nil {
 		return fmt.Errorf("config save: write: %w", err)
 	}
 

@@ -17,21 +17,21 @@ func TestLoad_WithDefaults(t *testing.T) {
 	require.NoError(t, os.Chdir(dir))
 	defer func() { _ = os.Chdir(oldWd) }()
 
-	cfg, err := Load()
+	loaded, err := Load()
 	require.NoError(t, err)
-	require.NotNil(t, cfg)
+	require.NotNil(t, loaded)
 
-	assert.Equal(t, "zen", cfg.Suggestion.Mode)
-	assert.Equal(t, "auto", cfg.Suggestion.Language)
-	assert.Equal(t, "ollama", cfg.LLM.Provider)
-	assert.Equal(t, "qwen2.5:3b", cfg.LLM.Model)
-	assert.Equal(t, "qwen2.5:3b", cfg.LLM.Primary.Model)
-	assert.True(t, cfg.LLM.Primary.Enabled)
-	assert.False(t, cfg.LLM.Secondary.Enabled)
-	assert.Equal(t, "http://localhost:11434", cfg.LLM.Endpoint)
-	assert.Equal(t, 300, cfg.Sync.AutoFetchInterval)
-	assert.Equal(t, "dark", cfg.Theme.Name)
-	assert.Equal(t, "auto", cfg.I18n.Language)
+	assert.Equal(t, "zen", loaded.Suggestion.Mode)
+	assert.Equal(t, "auto", loaded.Suggestion.Language)
+	assert.Equal(t, "ollama", loaded.LLM.Provider)
+	assert.Equal(t, "qwen2.5:3b", loaded.LLM.Model)
+	assert.Equal(t, "qwen2.5:3b", loaded.LLM.Primary.Model)
+	assert.True(t, loaded.LLM.Primary.Enabled)
+	assert.False(t, loaded.LLM.Secondary.Enabled)
+	assert.Equal(t, "http://localhost:11434", loaded.LLM.Endpoint)
+	assert.Equal(t, 300, loaded.Sync.AutoFetchInterval)
+	assert.Equal(t, "dark", loaded.Theme.Name)
+	assert.Equal(t, "auto", loaded.I18n.Language)
 }
 
 func TestLoad_GlobalConfig(t *testing.T) {
@@ -43,16 +43,16 @@ func TestLoad_GlobalConfig(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(globalDir, "config.yaml"), []byte(`
 suggestion:
   mode: "full"
-`), 0o644))
+`), 0o600))
 
 	workDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	require.NoError(t, os.Chdir(workDir))
 	defer func() { _ = os.Chdir(oldWd) }()
 
-	cfg, err := Load()
+	loaded, err := Load()
 	require.NoError(t, err)
-	assert.Equal(t, "full", cfg.Suggestion.Mode)
+	assert.Equal(t, "full", loaded.Suggestion.Mode)
 }
 
 func TestLoad_LegacyGlobalConfigFallback(t *testing.T) {
@@ -64,16 +64,16 @@ func TestLoad_LegacyGlobalConfigFallback(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(globalDir, "config.yaml"), []byte(`
 suggestion:
   mode: "manual"
-`), 0o644))
+`), 0o600))
 
 	workDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	require.NoError(t, os.Chdir(workDir))
 	defer func() { _ = os.Chdir(oldWd) }()
 
-	cfg, err := Load()
+	loaded, err := Load()
 	require.NoError(t, err)
-	assert.Equal(t, "manual", cfg.Suggestion.Mode)
+	assert.Equal(t, "manual", loaded.Suggestion.Mode)
 }
 
 func TestLoad_NewGlobalConfigOverridesLegacy(t *testing.T) {
@@ -85,7 +85,7 @@ func TestLoad_NewGlobalConfigOverridesLegacy(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(newDir, "config.yaml"), []byte(`
 suggestion:
   mode: "full"
-`), 0o644))
+`), 0o600))
 
 	legacyDir, err := LegacyGlobalConfigDir()
 	require.NoError(t, err)
@@ -93,16 +93,16 @@ suggestion:
 	require.NoError(t, os.WriteFile(filepath.Join(legacyDir, "config.yaml"), []byte(`
 suggestion:
   mode: "manual"
-`), 0o644))
+`), 0o600))
 
 	workDir := t.TempDir()
 	oldWd, _ := os.Getwd()
 	require.NoError(t, os.Chdir(workDir))
 	defer func() { _ = os.Chdir(oldWd) }()
 
-	cfg, err := Load()
+	loaded, err := Load()
 	require.NoError(t, err)
-	assert.Equal(t, "full", cfg.Suggestion.Mode)
+	assert.Equal(t, "full", loaded.Suggestion.Mode)
 }
 
 func TestLoad_EnvOverrides(t *testing.T) {
@@ -115,9 +115,9 @@ func TestLoad_EnvOverrides(t *testing.T) {
 
 	t.Setenv("GITDEX_SUGGESTION_MODE", "manual")
 
-	cfg, err := Load()
+	loaded, err := Load()
 	require.NoError(t, err)
-	assert.Equal(t, "manual", cfg.Suggestion.Mode)
+	assert.Equal(t, "manual", loaded.Suggestion.Mode)
 }
 
 func TestLoad_ProjectOverridesGlobal(t *testing.T) {
@@ -129,31 +129,31 @@ func TestLoad_ProjectOverridesGlobal(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(globalDir, "config.yaml"), []byte(`
 suggestion:
   mode: "full"
-`), 0o644))
+`), 0o600))
 
 	workDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(workDir, ProjectConfigName), []byte(`
 suggestion:
   mode: "zen"
-`), 0o644))
+`), 0o600))
 
 	oldWd, _ := os.Getwd()
 	require.NoError(t, os.Chdir(workDir))
 	defer func() { _ = os.Chdir(oldWd) }()
 
-	cfg, err := Load()
+	loaded, err := Load()
 	require.NoError(t, err)
-	assert.Equal(t, "zen", cfg.Suggestion.Mode)
+	assert.Equal(t, "zen", loaded.Suggestion.Mode)
 }
 
 func TestSaveGlobal_PersistsLanguage(t *testing.T) {
 	configureConfigEnv(t)
 
-	cfg := DefaultConfig()
-	cfg.I18n.Language = "zh"
-	cfg.Suggestion.Language = "zh"
+	defaultCfg := DefaultConfig()
+	defaultCfg.I18n.Language = "zh"
+	defaultCfg.Suggestion.Language = "zh"
 
-	require.NoError(t, SaveGlobal(cfg))
+	require.NoError(t, SaveGlobal(defaultCfg))
 
 	path, err := GlobalConfigPath()
 	require.NoError(t, err)

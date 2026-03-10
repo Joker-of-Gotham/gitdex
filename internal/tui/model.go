@@ -41,6 +41,8 @@ const (
 	selectSecondary
 )
 
+const localFileMode = 0o600
+
 type StartupInfo struct {
 	GitVersion   string
 	GitAvailable bool
@@ -255,17 +257,6 @@ func (m Model) refreshGitStateOnly() tea.Msg {
 	return gitStateMsg{state: state, skipAnalysis: true}
 }
 
-func (m Model) writeFile(path, content string) tea.Cmd {
-	return func() tea.Msg {
-		dir := filepath.Dir(path)
-		if dir != "." && dir != "" {
-			_ = os.MkdirAll(dir, 0o755)
-		}
-		err := os.WriteFile(path, []byte(content), 0o644)
-		return fileWriteResultMsg{path: path, err: err}
-	}
-}
-
 func (m Model) executeFileOp(fo *git.FileWriteInfo) tea.Cmd {
 	return func() tea.Msg {
 		op := strings.ToLower(fo.Operation)
@@ -286,16 +277,16 @@ func (m Model) executeFileOp(fo *git.FileWriteInfo) tea.Cmd {
 			if dir != "." && dir != "" {
 				_ = os.MkdirAll(dir, 0o755)
 			}
-			err = os.WriteFile(absPath, []byte(fo.Content), 0o644)
+			err = os.WriteFile(absPath, []byte(fo.Content), localFileMode)
 
 		case "update":
 			if fo.Backup {
 				if data, readErr := os.ReadFile(absPath); readErr == nil {
 					backupPath = absPath + ".bak"
-					_ = os.WriteFile(backupPath, data, 0o644)
+					_ = os.WriteFile(backupPath, data, localFileMode)
 				}
 			}
-			err = os.WriteFile(absPath, []byte(fo.Content), 0o644)
+			err = os.WriteFile(absPath, []byte(fo.Content), localFileMode)
 
 		case "append":
 			var existing []byte
@@ -307,13 +298,13 @@ func (m Model) executeFileOp(fo *git.FileWriteInfo) tea.Cmd {
 				_ = os.MkdirAll(dir, 0o755)
 			}
 			newContent := append(existing, []byte(fo.Content)...)
-			err = os.WriteFile(absPath, newContent, 0o644)
+			err = os.WriteFile(absPath, newContent, localFileMode)
 
 		case "delete":
 			if fo.Backup {
 				if data, readErr := os.ReadFile(absPath); readErr == nil {
 					backupPath = absPath + ".bak"
-					_ = os.WriteFile(backupPath, data, 0o644)
+					_ = os.WriteFile(backupPath, data, localFileMode)
 				}
 			}
 			err = os.Remove(absPath)
@@ -482,14 +473,6 @@ func (m *Model) revalidatePendingSuggestions() {
 			Summary: fmt.Sprintf("State change: removed %d stale suggestion(s)", removed),
 		})
 	}
-}
-
-func stripLogPrefix(s, prefix string) string {
-	s = strings.TrimSpace(s)
-	if strings.HasPrefix(s, prefix) {
-		return strings.TrimSpace(strings.TrimPrefix(s, prefix))
-	}
-	return s
 }
 
 func (m Model) executeCommand(args []string) tea.Cmd {

@@ -41,12 +41,6 @@ func CollectFileContext(ctx context.Context, state *status.GitState) *prompt.Fil
 		}
 	}
 
-	// If user has staged changes, include diff preview
-	if len(state.StagingArea) > 0 {
-		// This would require git diff --staged, but we'll keep it simple for now
-		// The file inspector already provides diff stats
-	}
-
 	return fc
 }
 

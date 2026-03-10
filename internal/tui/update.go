@@ -14,6 +14,8 @@ import (
 	"github.com/Joker-of-Gotham/gitdex/internal/llm"
 	"github.com/Joker-of-Gotham/gitdex/internal/llm/ollama"
 	"github.com/Joker-of-Gotham/gitdex/internal/tui/oplog"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -677,7 +679,7 @@ func (m Model) updateMain(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				if op == "" {
 					op = "create"
 				}
-				m.statusMsg = fmt.Sprintf("%s: %s", strings.Title(op), s.FileOp.Path)
+				m.statusMsg = fmt.Sprintf("%s: %s", cases.Title(language.Und).String(op), s.FileOp.Path)
 				m = m.addLog(oplog.Entry{
 					Type:    oplog.EntryUserAction,
 					Summary: fmt.Sprintf("Accepted file %s: %s", op, s.FileOp.Path),

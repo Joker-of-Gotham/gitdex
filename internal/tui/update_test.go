@@ -18,7 +18,8 @@ func TestHandleInputPaste(t *testing.T) {
 	}
 
 	model, _ := m.Update(tea.PasteMsg{Content: "git@github.com:user/repo.git"})
-	updated := model.(Model)
+	updated, ok := model.(Model)
+	assert.True(t, ok)
 
 	assert.Equal(t, "git@github.com:user/repo.git", updated.inputValues[0])
 	assert.Equal(t, len("git@github.com:user/repo.git"), updated.inputCursorAt)
@@ -35,7 +36,8 @@ func TestUpdateInputUsesKeyText(t *testing.T) {
 
 	msg := tea.KeyPressMsg(tea.Key{Text: "https://github.com/user/repo.git"})
 	model, _ := m.Update(msg)
-	updated := model.(Model)
+	updated, ok := model.(Model)
+	assert.True(t, ok)
 
 	assert.Equal(t, "https://github.com/user/repo.git", updated.inputValues[0])
 }
@@ -50,7 +52,8 @@ func TestUpdateMain_InfoOnlyAdvancesAndRefreshes(t *testing.T) {
 	m.suggExecMsg = make([]string, len(m.suggestions))
 
 	model, cmd := m.updateMain(tea.KeyPressMsg(tea.Key{Text: "y"}))
-	updated := model.(Model)
+	updated, ok := model.(Model)
+	assert.True(t, ok)
 
 	assert.NotNil(t, cmd)
 	assert.Equal(t, 1, updated.suggIdx)

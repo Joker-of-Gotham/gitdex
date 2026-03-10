@@ -32,6 +32,7 @@ func NewCLIExecutor() (*CLIExecutor, error) {
 
 // Exec runs a git command with the given args and returns stdout, stderr, and error.
 func (c *CLIExecutor) Exec(ctx context.Context, args ...string) (string, string, error) {
+	// #nosec G204 -- git path is resolved locally and arguments are intentional Git CLI tokens.
 	cmd := exec.CommandContext(ctx, c.gitPath, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -42,6 +43,7 @@ func (c *CLIExecutor) Exec(ctx context.Context, args ...string) (string, string,
 
 // ExecStream runs a git command and returns output as a channel.
 func (c *CLIExecutor) ExecStream(ctx context.Context, args ...string) (<-chan string, error) {
+	// #nosec G204 -- git path is resolved locally and arguments are intentional Git CLI tokens.
 	cmd := exec.CommandContext(ctx, c.gitPath, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -61,7 +63,9 @@ func (c *CLIExecutor) ExecStream(ctx context.Context, args ...string) (<-chan st
 				return
 			}
 		}
-		cmd.Wait()
+		if waitErr := cmd.Wait(); waitErr != nil && ctx.Err() == nil {
+			return
+		}
 	}()
 	return ch, nil
 }

@@ -26,6 +26,8 @@ const (
 	OpExists OpType = "exists"
 )
 
+const repositoryFileMode = 0o644
+
 // FileResult contains the result of a file operation.
 type FileResult struct {
 	Success    bool
@@ -70,7 +72,7 @@ func (e *Executor) Create(ctx context.Context, path string, content string) (*Fi
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return &FileResult{Success: false, Path: absPath, Error: err}, err
 	}
-	if err := os.WriteFile(absPath, []byte(content), 0644); err != nil {
+	if err := writeRepoFile(absPath, []byte(content)); err != nil {
 		return &FileResult{Success: false, Path: absPath, Error: err}, err
 	}
 	return &FileResult{
@@ -92,11 +94,11 @@ func (e *Executor) Update(ctx context.Context, path string, content string, back
 		if _, err := os.Stat(absPath); err == nil {
 			data, err := os.ReadFile(absPath)
 			if err == nil {
-				_ = os.WriteFile(backupPath, data, 0644)
+				_ = writeRepoFile(backupPath, data)
 			}
 		}
 	}
-	if err := os.WriteFile(absPath, []byte(content), 0644); err != nil {
+	if err := writeRepoFile(absPath, []byte(content)); err != nil {
 		return &FileResult{Success: false, Path: absPath, Error: err}, err
 	}
 	return &FileResult{
@@ -117,7 +119,7 @@ func (e *Executor) Delete(ctx context.Context, path string, backup bool) (*FileR
 	if backup {
 		backupPath = absPath + ".bak"
 		if data, err := os.ReadFile(absPath); err == nil {
-			_ = os.WriteFile(backupPath, data, 0644)
+			_ = writeRepoFile(backupPath, data)
 		}
 	}
 	if err := os.Remove(absPath); err != nil {
@@ -160,7 +162,7 @@ func (e *Executor) Append(ctx context.Context, path string, content string) (*Fi
 		existing = string(data)
 	}
 	newContent := existing + content
-	if err := os.WriteFile(absPath, []byte(newContent), 0644); err != nil {
+	if err := writeRepoFile(absPath, []byte(newContent)); err != nil {
 		return &FileResult{Success: false, Path: absPath, Error: err}, err
 	}
 	return &FileResult{
@@ -212,4 +214,9 @@ func (e *Executor) FindInFile(ctx context.Context, path string, pattern string) 
 		}
 	}
 	return matches, nil
+}
+
+func writeRepoFile(path string, data []byte) error {
+	// #nosec G306 -- repository files created by gitdex are expected to be readable by normal tooling.
+	return os.WriteFile(path, data, repositoryFileMode)
 }

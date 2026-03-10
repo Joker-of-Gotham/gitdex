@@ -16,6 +16,7 @@ const memoryFileName = "memory.json"
 const maxRepoEntries = 10
 const maxPatterns = 20
 const maxResolvedHistory = 30
+const memoryFileMode = 0o600
 
 // Store manages persistent long-term memory across sessions.
 type Store struct {
@@ -115,7 +116,7 @@ func (s *Store) Save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.path, data, 0644)
+	return os.WriteFile(s.path, data, memoryFileMode)
 }
 
 // Snapshot returns a defensive copy of the current memory state.

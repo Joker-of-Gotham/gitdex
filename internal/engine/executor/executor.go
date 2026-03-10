@@ -146,8 +146,9 @@ func extractExitCode(err error) int {
 	s := err.Error()
 	if strings.HasPrefix(s, "exit status ") {
 		code := 0
-		fmt.Sscanf(s, "exit status %d", &code)
-		return code
+		if _, scanErr := fmt.Sscanf(s, "exit status %d", &code); scanErr == nil {
+			return code
+		}
 	}
 	return 1
 }

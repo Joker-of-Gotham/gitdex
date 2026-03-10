@@ -194,9 +194,6 @@ func (c *OllamaClient) Generate(ctx context.Context, req llm.GenerateRequest) (*
 // GenerateStream sends a prompt to POST /api/generate with stream=true and yields chunks via channel.
 func (c *OllamaClient) GenerateStream(ctx context.Context, req llm.GenerateRequest) (<-chan llm.StreamChunk, error) {
 	ctx, cancel := withTimeoutIfMissing(ctx, generateTimeout)
-	if cancel != nil {
-		// Released by stream goroutine on exit to preserve the request deadline for the stream lifetime.
-	}
 
 	model := c.resolveModel(req)
 	body := OllamaGenerateRequest{

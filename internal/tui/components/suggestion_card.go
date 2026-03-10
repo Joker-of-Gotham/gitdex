@@ -36,7 +36,7 @@ func (c SuggestionCard) View(width int) string {
 	}
 	riskStyle := c.riskStyle()
 
-	barStyle := riskStyle.Copy().Width(2).Align(lipgloss.Center)
+	barStyle := riskStyle.Width(2).Align(lipgloss.Center)
 	bar := barStyle.Render("  ")
 
 	actionStyle := lipgloss.NewStyle().Bold(true).Padding(0, 1)

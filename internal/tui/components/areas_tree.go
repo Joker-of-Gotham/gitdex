@@ -210,8 +210,8 @@ func (t AreasTree) renderRemoteBox(r git.RemoteInfo) string {
 	}
 	lines = append(lines, host)
 
-	color := colorSafe
-	statusText := "valid"
+	var color string
+	var statusText string
 	switch {
 	case !r.FetchURLValid && !r.PushURLValid:
 		color = colorDanger

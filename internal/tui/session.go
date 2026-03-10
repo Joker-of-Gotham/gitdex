@@ -18,45 +18,9 @@ type SessionContext struct {
 	GoalHistory    []GoalRecord      `json:"goal_history,omitempty"`
 	SkippedActions []string          `json:"skipped_actions,omitempty"`
 	Preferences    map[string]string `json:"preferences,omitempty"`
-	ResolvedIssues []string          `json:"resolved_issues,omitempty"`
 }
 
-const (
-	maxGoalHistory    = 20
-	maxSkippedActions = 30
-	maxResolvedIssues = 20
-)
-
-func (s *SessionContext) addResolvedIssue(issue string) {
-	issue = strings.TrimSpace(issue)
-	if issue == "" || s == nil {
-		return
-	}
-	s.ResolvedIssues = append(s.ResolvedIssues, issue)
-	if len(s.ResolvedIssues) > maxResolvedIssues {
-		s.ResolvedIssues = s.ResolvedIssues[len(s.ResolvedIssues)-maxResolvedIssues:]
-	}
-}
-
-func (s *SessionContext) addSkipped(action string) {
-	action = strings.TrimSpace(action)
-	if action == "" || s == nil {
-		return
-	}
-	s.SkippedActions = append(s.SkippedActions, action)
-	if len(s.SkippedActions) > maxSkippedActions {
-		s.SkippedActions = s.SkippedActions[len(s.SkippedActions)-maxSkippedActions:]
-	}
-}
-
-func (s *SessionContext) trimHistory() {
-	if s == nil {
-		return
-	}
-	if len(s.GoalHistory) > maxGoalHistory {
-		s.GoalHistory = s.GoalHistory[len(s.GoalHistory)-maxGoalHistory:]
-	}
-}
+const maxGoalHistory = 20
 
 func (s SessionContext) ToPromptContext() prompt.SessionContext {
 	out := prompt.SessionContext{
@@ -91,6 +55,9 @@ func (s *SessionContext) markGoalStatus(status string) {
 		Status:    strings.TrimSpace(status),
 		Timestamp: time.Now(),
 	})
+	if len(s.GoalHistory) > maxGoalHistory {
+		s.GoalHistory = s.GoalHistory[len(s.GoalHistory)-maxGoalHistory:]
+	}
 	if status == "completed" {
 		s.ActiveGoal = ""
 	}

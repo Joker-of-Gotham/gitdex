@@ -31,7 +31,8 @@ func TestUpdateLanguageSelect_PersistsLanguageAndReturns(t *testing.T) {
 	m.languageCursor = m.languageCursorFor("zh")
 
 	model, _ := m.updateLanguageSelect(tea.KeyPressMsg(tea.Key{Text: "enter"}))
-	updated := model.(Model)
+	updated, ok := model.(Model)
+	require.True(t, ok)
 
 	assert.Equal(t, screenMain, updated.screen)
 	assert.Equal(t, "zh", i18n.Lang())
