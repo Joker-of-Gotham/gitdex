@@ -1,0 +1,36 @@
+<svg width="1200" height="720" viewBox="0 0 1200 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="720" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8F4EA"/>
+      <stop offset="1" stop-color="#E4F4FF"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="720" rx="28" fill="url(#bg)"/>
+  <rect x="62" y="64" width="1076" height="592" rx="28" fill="#FFFDF9" stroke="#C9DDEA" stroke-width="2"/>
+  <rect x="96" y="98" width="1008" height="520" rx="22" fill="#102B45"/>
+  <text x="128" y="144" fill="#EEF6FF" font-family="Consolas, Menlo, monospace" font-size="24">Observability</text>
+  <rect x="124" y="174" width="844" height="42" rx="12" fill="#173B63"/>
+  <text x="146" y="201" fill="#DDEBFA" font-family="Consolas, Menlo, monospace" font-size="18">Workflow   Timeline   Context   Memory   Raw   Result   Thinking</text>
+  <rect x="124" y="242" width="392" height="336" rx="18" fill="#F8FBFF"/>
+  <text x="152" y="282" fill="#12314F" font-family="Inter, Segoe UI, sans-serif" font-size="28" font-weight="700">Workflow</text>
+  <text x="152" y="324" fill="#31556F" font-family="Inter, Segoe UI, sans-serif" font-size="20">Current stage: analyze</text>
+  <text x="152" y="356" fill="#31556F" font-family="Inter, Segoe UI, sans-serif" font-size="20">Goal: prepare public release</text>
+  <text x="152" y="388" fill="#31556F" font-family="Inter, Segoe UI, sans-serif" font-size="20">Suggestions: total=4 pending=1 done=3</text>
+  <text x="152" y="436" fill="#12314F" font-family="Inter, Segoe UI, sans-serif" font-size="24" font-weight="700">Recent events</text>
+  <text x="152" y="472" fill="#31556F" font-family="Inter, Segoe UI, sans-serif" font-size="18">13:33 State refreshed</text>
+  <text x="152" y="500" fill="#31556F" font-family="Inter, Segoe UI, sans-serif" font-size="18">13:34 Advisory reviewed</text>
+  <text x="152" y="528" fill="#31556F" font-family="Inter, Segoe UI, sans-serif" font-size="18">13:35 Release assets prepared</text>
+  <rect x="546" y="242" width="524" height="156" rx="18" fill="#F2B15A"/>
+  <text x="574" y="284" fill="#4D2C00" font-family="Inter, Segoe UI, sans-serif" font-size="28" font-weight="700">Context</text>
+  <text x="574" y="320" fill="#6F4611" font-family="Inter, Segoe UI, sans-serif" font-size="20">Mode: zen | Primary: qwen2.5:3b | Verify: off</text>
+  <text x="574" y="352" fill="#6F4611" font-family="Inter, Segoe UI, sans-serif" font-size="20">Budget: total=32768 reserved=2048 usable=30720</text>
+  <rect x="546" y="422" width="248" height="156" rx="18" fill="#DCEFF7"/>
+  <text x="574" y="464" fill="#12314F" font-family="Inter, Segoe UI, sans-serif" font-size="28" font-weight="700">Memory</text>
+  <text x="574" y="500" fill="#31556F" font-family="Inter, Segoe UI, sans-serif" font-size="18">preferences</text>
+  <text x="574" y="528" fill="#31556F" font-family="Inter, Segoe UI, sans-serif" font-size="18">repo patterns</text>
+  <text x="574" y="556" fill="#31556F" font-family="Inter, Segoe UI, sans-serif" font-size="18">resolved goals</text>
+  <rect x="822" y="422" width="248" height="156" rx="18" fill="#173B63"/>
+  <text x="850" y="464" fill="#EEF6FF" font-family="Inter, Segoe UI, sans-serif" font-size="28" font-weight="700">Result</text>
+  <text x="850" y="500" fill="#D4E6F7" font-family="Inter, Segoe UI, sans-serif" font-size="18">Command succeeded: git status</text>
+  <text x="850" y="528" fill="#D4E6F7" font-family="Inter, Segoe UI, sans-serif" font-size="18">Viewed advisory: release checklist</text>
+</svg>

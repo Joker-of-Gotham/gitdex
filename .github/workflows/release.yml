@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: chmod +x ./scripts/build.sh ./scripts/render-release-notes.sh
+      - run: ./scripts/build.sh "${GITHUB_REF_NAME}" dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: gitdex ${{ github.ref_name }}
+          body_path: dist/release-notes.md
+          fail_on_unmatched_files: true
+          files: |
+            dist/gitdex-windows-amd64.exe
+            dist/gitdex-windows-arm64.exe
+            dist/gitdex-linux-amd64
+            dist/gitdex-linux-arm64
+            dist/gitdex-macos-amd64
+            dist/gitdex-macos-arm64
+            dist/gitdex-source.zip
+            dist/checksums.txt

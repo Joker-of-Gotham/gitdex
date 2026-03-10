@@ -1,0 +1,51 @@
+<svg width="1200" height="720" viewBox="0 0 1200 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="720" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7F1E8"/>
+      <stop offset="1" stop-color="#D8EEFF"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="112" y1="106" x2="706" y2="550" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#173B63"/>
+      <stop offset="1" stop-color="#0E233A"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="720" rx="28" fill="url(#bg)"/>
+  <rect x="48" y="46" width="1104" height="628" rx="34" fill="#FFFDF9" stroke="#B9D5EA" stroke-width="2"/>
+
+  <rect x="92" y="96" width="618" height="478" rx="24" fill="url(#panel)"/>
+  <circle cx="126" cy="128" r="8" fill="#F2B15A"/>
+  <circle cx="150" cy="128" r="8" fill="#E77458"/>
+  <circle cx="174" cy="128" r="8" fill="#58B0A6"/>
+  <text x="202" y="134" fill="#DDEBFA" font-family="Consolas, Menlo, monospace" font-size="20">gitdex</text>
+  <text x="122" y="186" fill="#F3F7FC" font-family="Consolas, Menlo, monospace" font-size="26">AI analysis</text>
+  <text x="122" y="220" fill="#92BCD9" font-family="Consolas, Menlo, monospace" font-size="16">branch: release-ready   remote: origin(valid)</text>
+
+  <rect x="120" y="252" width="562" height="104" rx="16" fill="#183F68"/>
+  <text x="142" y="286" fill="#F9FCFF" font-family="Consolas, Menlo, monospace" font-size="18">Current repo is clean, .gitignore changed recently,</text>
+  <text x="142" y="314" fill="#F9FCFF" font-family="Consolas, Menlo, monospace" font-size="18">advisory loop resolved, release surface aligned.</text>
+
+  <text x="122" y="408" fill="#F3F7FC" font-family="Consolas, Menlo, monospace" font-size="24">Suggestions</text>
+  <rect x="120" y="432" width="562" height="70" rx="16" fill="#F7FBFF"/>
+  <rect x="138" y="450" width="10" height="34" rx="5" fill="#58B0A6"/>
+  <text x="164" y="476" fill="#10304F" font-family="Consolas, Menlo, monospace" font-size="17">Review release notes and publish v1.0.0</text>
+  <text x="122" y="542" fill="#92BCD9" font-family="Consolas, Menlo, monospace" font-size="16">Workflow  Timeline  Context  Memory  Raw  Result  Thinking</text>
+
+  <text x="748" y="158" fill="#12314F" font-family="Inter, Segoe UI, sans-serif" font-size="52" font-weight="700">gitdex</text>
+  <text x="748" y="204" fill="#31556F" font-family="Inter, Segoe UI, sans-serif" font-size="21">AI-native Git workflow for</text>
+  <text x="748" y="232" fill="#31556F" font-family="Inter, Segoe UI, sans-serif" font-size="21">local repositories</text>
+
+  <rect x="748" y="276" width="288" height="84" rx="22" fill="#12314F"/>
+  <text x="772" y="312" fill="#FFFFFF" font-family="Inter, Segoe UI, sans-serif" font-size="23" font-weight="700">Visible AI path</text>
+  <text x="772" y="340" fill="#CFE4F3" font-family="Inter, Segoe UI, sans-serif" font-size="16">Context, memory, raw output,</text>
+  <text x="772" y="362" fill="#CFE4F3" font-family="Inter, Segoe UI, sans-serif" font-size="16">reasoning, and result.</text>
+
+  <rect x="748" y="384" width="288" height="84" rx="22" fill="#F2B15A"/>
+  <text x="772" y="420" fill="#4D2C00" font-family="Inter, Segoe UI, sans-serif" font-size="23" font-weight="700">Local-first</text>
+  <text x="772" y="448" fill="#6F4611" font-family="Inter, Segoe UI, sans-serif" font-size="16">Ollama-backed model selection</text>
+  <text x="772" y="470" fill="#6F4611" font-family="Inter, Segoe UI, sans-serif" font-size="16">with optional verification.</text>
+
+  <rect x="748" y="492" width="288" height="84" rx="22" fill="#DCEFF7"/>
+  <text x="772" y="528" fill="#10304F" font-family="Inter, Segoe UI, sans-serif" font-size="23" font-weight="700">Inspectable TUI</text>
+  <text x="772" y="556" fill="#31556F" font-family="Inter, Segoe UI, sans-serif" font-size="16">Workflow, timeline, Git areas,</text>
+  <text x="772" y="578" fill="#31556F" font-family="Inter, Segoe UI, sans-serif" font-size="16">and live operation log.</text>
+</svg>
