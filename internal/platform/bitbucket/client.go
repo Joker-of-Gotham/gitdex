@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/Joker-of-Gotham/gitdex/internal/platform"
 	"github.com/Joker-of-Gotham/gitdex/internal/platform/contributing"
@@ -28,7 +29,7 @@ func New(token, workspace, repo string) *Client {
 	return &Client{
 		token:      token,
 		baseURL:    "https://api.bitbucket.org/2.0",
-		httpClient: &http.Client{},
+		httpClient: &http.Client{Timeout: 10 * time.Second},
 		workspace:  workspace,
 		repo:       repo,
 	}

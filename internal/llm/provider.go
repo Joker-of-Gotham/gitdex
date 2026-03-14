@@ -19,16 +19,20 @@ type GenerateRequest struct {
 
 type GenerateResponse struct {
 	Text       string
+	Thinking   string
+	Raw        string
 	TokenCount int
 }
 
 type StreamChunk struct {
-	Text string
-	Done bool
+	Text     string
+	Thinking string
+	Done     bool
 }
 
 type ModelInfo struct {
 	Name      string
+	Provider  string
 	Size      int64
 	Family    string
 	ParamSize string
@@ -36,6 +40,7 @@ type ModelInfo struct {
 }
 
 type LLMProvider interface {
+	Name() string
 	Generate(ctx context.Context, req GenerateRequest) (*GenerateResponse, error)
 	GenerateStream(ctx context.Context, req GenerateRequest) (<-chan StreamChunk, error)
 	IsAvailable(ctx context.Context) bool

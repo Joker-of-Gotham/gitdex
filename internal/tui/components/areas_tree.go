@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/mattn/go-runewidth"
 
 	"github.com/Joker-of-Gotham/gitdex/internal/git"
 	"github.com/Joker-of-Gotham/gitdex/internal/git/status"
@@ -16,14 +17,12 @@ const (
 	defaultTreeMaxItems = 4
 )
 
-// AreasTree renders Working/Staging/Local/Remote state in a vertical flow.
 type AreasTree struct {
 	state    *status.GitState
 	width    int
 	maxItems int
 }
 
-// NewAreasTree creates an AreasTree renderer.
 func NewAreasTree(state *status.GitState) AreasTree {
 	return AreasTree{
 		state:    state,
@@ -32,57 +31,38 @@ func NewAreasTree(state *status.GitState) AreasTree {
 	}
 }
 
-// SetWidth sets panel width.
 func (t AreasTree) SetWidth(width int) AreasTree {
 	t.width = width
 	return t
 }
 
-// SetMaxItems sets the max visible file items per section.
 func (t AreasTree) SetMaxItems(maxItems int) AreasTree {
 	t.maxItems = maxItems
 	return t
 }
 
-// View renders the full Git areas tree.
 func (t AreasTree) View() string {
 	if t.width <= 0 {
 		t.width = defaultTreeWidth
 	}
-	if t.maxItems <= 0 {
-		t.maxItems = defaultTreeMaxItems
-	}
 	if t.state == nil {
-		return t.renderBox("Git Areas", []string{"State unavailable"}, colorMuted)
+		return strings.Join(t.wrapLine("", "repo: state unavailable", treeMuted()), "\n")
 	}
 
-	var blocks []string
-	blocks = append(blocks, t.renderWorkingDirectory())
-	blocks = append(blocks, t.renderConnector("git add"))
-	blocks = append(blocks, t.renderStagingArea())
-	blocks = append(blocks, t.renderConnector("git commit"))
-	blocks = append(blocks, t.renderLocalRepository())
-	blocks = append(blocks, t.renderConnector("git push"))
-
-	remoteBlocks := t.renderRemoteBlocks()
-	blocks = append(blocks, remoteBlocks...)
-
-	return strings.Join(blocks, "\n")
+	var lines []string
+	lines = append(lines, t.wrapLine("", "repo", treeRoot())...)
+	lines = append(lines, t.workingTreeLines()...)
+	lines = append(lines, t.stagingTreeLines()...)
+	lines = append(lines, t.localRepoLines()...)
+	lines = append(lines, t.remoteLines()...)
+	return strings.Join(lines, "\n")
 }
 
-const (
-	colorSafe    = "42"
-	colorCaution = "214"
-	colorDanger  = "196"
-	colorMuted   = "241"
-)
-
-func (t AreasTree) renderWorkingDirectory() string {
-	s := t.state
+func (t AreasTree) workingTreeLines() []string {
 	modified := 0
 	untracked := 0
 	var items []string
-	for _, f := range s.WorkingTree {
+	for _, f := range t.state.WorkingTree {
 		switch f.WorktreeCode {
 		case git.StatusUntracked:
 			untracked++
@@ -94,203 +74,194 @@ func (t AreasTree) renderWorkingDirectory() string {
 			items = append(items, string(f.WorktreeCode)+" "+f.Path)
 		}
 	}
+
 	var lines []string
+	lines = append(lines, t.wrapLine("+- ", "Working Directory", treeSection())...)
+	summary := fmt.Sprintf("%d modified, %d new", modified, untracked)
 	if modified == 0 && untracked == 0 {
-		lines = append(lines, "clean")
-	} else {
-		lines = append(lines, fmt.Sprintf("%d modified 璺?%d new", modified, untracked))
-		lines = append(lines, t.limitLines(items)...)
+		summary = "clean"
 	}
-	color := colorSafe
-	if modified > 0 || untracked > 0 {
-		color = colorCaution
+	lines = append(lines, t.wrapLine("|  +- ", summary, treeStatus(modified == 0 && untracked == 0))...)
+	for _, item := range t.limitLines(items) {
+		lines = append(lines, t.wrapLine("|  |  ", item, treeItem(item))...)
 	}
-	return t.renderBox("Working Directory", lines, color)
+	return lines
 }
 
-func (t AreasTree) renderStagingArea() string {
-	s := t.state
-	var lines []string
+func (t AreasTree) stagingTreeLines() []string {
 	var items []string
-	for _, f := range s.StagingArea {
-		code := f.StagingCode
-		if code == git.StatusUnmodified {
+	for _, f := range t.state.StagingArea {
+		if f.StagingCode == git.StatusUnmodified {
 			continue
 		}
-		items = append(items, string(code)+" "+f.Path)
+		items = append(items, string(f.StagingCode)+" "+f.Path)
 	}
-	if len(items) == 0 {
-		lines = append(lines, "clean")
-	} else {
-		lines = append(lines, fmt.Sprintf("%d staged", len(items)))
-		lines = append(lines, t.limitLines(items)...)
-	}
-	color := colorSafe
-	if len(items) > 0 {
-		color = colorCaution
-	}
-	return t.renderBox("Staging Area", lines, color)
-}
-
-func (t AreasTree) renderLocalRepository() string {
-	s := t.state
-	branch := s.LocalBranch.Name
-	if strings.TrimSpace(branch) == "" {
-		branch = "(no branch)"
-	}
-	lines := []string{
-		fmt.Sprintf("%s | %d commits", branch, s.CommitCount),
-	}
-	ahead, behind := s.LocalBranch.Ahead, s.LocalBranch.Behind
-	if s.UpstreamState != nil {
-		ahead = s.UpstreamState.Ahead
-		behind = s.UpstreamState.Behind
-	}
-	if s.LocalBranch.Upstream != "" {
-		lines = append(lines, fmt.Sprintf("ahead:%d behind:%d vs %s", ahead, behind, s.LocalBranch.Upstream))
-	} else {
-		lines = append(lines, fmt.Sprintf("ahead:%d behind:%d | no upstream", ahead, behind))
-	}
-	if s.LocalBranch.IsDetached {
-		lines = append(lines, "DETACHED HEAD")
-	}
-	if s.MergeInProgress || s.RebaseInProgress || s.CherryInProgress || s.BisectInProgress {
-		lines = append(lines, "operation in progress")
-	}
-
-	color := colorSafe
-	if s.MergeInProgress || s.RebaseInProgress || s.CherryInProgress || s.BisectInProgress {
-		color = colorDanger
-	} else if ahead > 0 || behind > 0 {
-		color = colorCaution
-	}
-	return t.renderBox("Local Repository", lines, color)
-}
-
-func (t AreasTree) renderRemoteBlocks() []string {
-	s := t.state
-	var blocks []string
-	if len(s.RemoteInfos) == 0 {
-		blocks = append(blocks, t.renderBox("Remote", []string{"not configured"}, colorMuted))
-		return blocks
-	}
-
-	upstream := upstreamRemoteName(s.LocalBranch.Upstream)
-	hasUpstream := false
-	for idx, r := range s.RemoteInfos {
-		if idx > 0 {
-			blocks = append(blocks, t.renderConnector("sync"))
-		}
-		if r.Name == upstream && upstream != "" {
-			hasUpstream = true
-		}
-		blocks = append(blocks, t.renderRemoteBox(r))
-	}
-
-	if upstream != "" && !hasUpstream {
-		blocks = append(blocks, t.renderConnector("upstream"))
-		blocks = append(blocks, t.renderBox(fmt.Sprintf("%s (remote)", upstream), []string{"not configured"}, colorMuted))
-	}
-	return blocks
-}
-
-func (t AreasTree) renderRemoteBox(r git.RemoteInfo) string {
-	title := r.Name + " (remote)"
-	urlValue := r.PushURL
-	if strings.TrimSpace(urlValue) == "" {
-		urlValue = r.FetchURL
-	}
-	host := hostFromRemote(urlValue)
-	scheme := remoteScheme(urlValue)
 
 	var lines []string
-	if host == "" {
-		lines = append(lines, "not configured")
-		return t.renderBox(title, lines, colorMuted)
+	lines = append(lines, t.wrapLine("+- ", "Staging Area", treeSection())...)
+	summary := "clean"
+	if len(items) > 0 {
+		summary = fmt.Sprintf("%d staged", len(items))
 	}
-	lines = append(lines, host)
-
-	var color string
-	var statusText string
-	switch {
-	case !r.FetchURLValid && !r.PushURLValid:
-		color = colorDanger
-		statusText = "invalid URL"
-	case r.ReachabilityChecked && !r.Reachable:
-		color = colorDanger
-		statusText = "unreachable"
-	default:
-		if r.ReachabilityChecked {
-			statusText = "reachable"
-			color = colorSafe
-		} else {
-			statusText = "not probed"
-			color = colorCaution
-		}
+	lines = append(lines, t.wrapLine("|  +- ", summary, treeStatus(len(items) == 0))...)
+	for _, item := range t.limitLines(items) {
+		lines = append(lines, t.wrapLine("|  |  ", item, treeItem(item))...)
 	}
-	lines = append(lines, fmt.Sprintf("%s | %s", scheme, statusText))
-	if r.LastError != "" && statusText == "unreachable" {
-		lines = append(lines, r.LastError)
-	}
-	return t.renderBox(title, lines, color)
+	return lines
 }
 
-func (t AreasTree) renderConnector(action string) string {
-	text := "      -> " + strings.TrimSpace(action)
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color(colorMuted)).
-		Render(trimForPanel(text, t.width))
-}
-
-func (t AreasTree) renderBox(title string, lines []string, color string) string {
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color(color))
-	bodyStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("252"))
-
-	rendered := []string{titleStyle.Render(title)}
-	for _, line := range lines {
-		rendered = append(rendered, bodyStyle.Render(trimForPanel(line, t.width-4)))
+func (t AreasTree) localRepoLines() []string {
+	branch := strings.TrimSpace(t.state.LocalBranch.Name)
+	if branch == "" {
+		branch = "(no branch)"
+	}
+	ahead, behind := t.state.LocalBranch.Ahead, t.state.LocalBranch.Behind
+	if t.state.UpstreamState != nil {
+		ahead = t.state.UpstreamState.Ahead
+		behind = t.state.UpstreamState.Behind
 	}
 
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(color)).
-		Padding(0, 1).
-		Width(t.width).
-		Render(strings.Join(rendered, "\n"))
+	var lines []string
+	lines = append(lines, t.wrapLine("+- ", "Local Repository", treeSection())...)
+	lines = append(lines, t.wrapLine("|  +- ", fmt.Sprintf("branch: %s", branch), treeValue())...)
+	lines = append(lines, t.wrapLine("|  +- ", fmt.Sprintf("commits: %d", t.state.CommitCount), treeValue())...)
+	if t.state.LocalBranch.Upstream != "" {
+		lines = append(lines, t.wrapLine("|  +- ", fmt.Sprintf("ahead:%d behind:%d vs %s", ahead, behind, t.state.LocalBranch.Upstream), treeStatus(ahead == 0 && behind == 0))...)
+	} else {
+		lines = append(lines, t.wrapLine("|  +- ", fmt.Sprintf("ahead:%d behind:%d | no upstream", ahead, behind), treeWarn())...)
+	}
+	if t.state.LocalBranch.IsDetached {
+		lines = append(lines, t.wrapLine("|  +- ", "detached HEAD", treeDanger())...)
+	}
+	if t.state.MergeInProgress || t.state.RebaseInProgress || t.state.CherryInProgress || t.state.BisectInProgress {
+		lines = append(lines, t.wrapLine("|  +- ", "git operation in progress", treeDanger())...)
+	}
+	return lines
 }
 
-func (t AreasTree) limitLines(lines []string) []string {
-	if len(lines) <= t.maxItems {
+func (t AreasTree) remoteLines() []string {
+	var lines []string
+	lines = append(lines, t.wrapLine("`- ", "Remote", treeSection())...)
+	if len(t.state.RemoteInfos) == 0 {
+		lines = append(lines, t.wrapLine("   `- ", "not configured", treeMuted())...)
 		return lines
 	}
-	out := append([]string(nil), lines[:t.maxItems]...)
-	out = append(out, fmt.Sprintf("... +%d more", len(lines)-t.maxItems))
+	for idx, remote := range t.state.RemoteInfos {
+		nodePrefix := "   +- "
+		childPrefix := "   |  "
+		if idx == len(t.state.RemoteInfos)-1 {
+			nodePrefix = "   `- "
+			childPrefix = "      "
+		}
+		title := remote.Name
+		if title == "" {
+			title = "remote"
+		}
+		title += " (remote)"
+		lines = append(lines, t.wrapLine(nodePrefix, title, treeSection())...)
+
+		urlValue := remote.PushURL
+		if strings.TrimSpace(urlValue) == "" {
+			urlValue = remote.FetchURL
+		}
+		host := hostFromRemote(urlValue)
+		if host == "" {
+			host = "not configured"
+		}
+		lines = append(lines, t.wrapLine(childPrefix+"+- ", "host: "+host, treeValue())...)
+		lines = append(lines, t.wrapLine(childPrefix+"+- ", "transport: "+remoteScheme(urlValue), treeValue())...)
+		lines = append(lines, t.wrapLine(childPrefix+"`- ", remoteStatusText(remote), remoteStatusStyle(remote))...)
+	}
+	return lines
+}
+
+func (t AreasTree) wrapLine(prefix, text string, style lipgloss.Style) []string {
+	available := t.width - runewidth.StringWidth(prefix)
+	if available < 8 {
+		available = t.width
+		prefix = ""
+	}
+	wrapped := strings.Split(runewidth.Wrap(text, available), "\n")
+	out := make([]string, 0, len(wrapped))
+	for i, line := range wrapped {
+		lead := prefix
+		if i > 0 {
+			lead = strings.Repeat(" ", runewidth.StringWidth(prefix))
+		}
+		out = append(out, lipgloss.NewStyle().Foreground(lipgloss.Color("#51606B")).Render(lead)+style.Render(line))
+	}
 	return out
 }
 
-func trimForPanel(s string, width int) string {
-	s = strings.TrimSpace(s)
-	if width <= 0 || len(s) <= width {
-		return s
+func (t AreasTree) limitLines(lines []string) []string {
+	if t.maxItems <= 0 || len(lines) <= t.maxItems {
+		return lines
 	}
-	if width <= 3 {
-		return s[:width]
-	}
-	return s[:width-3] + "..."
+	out := append([]string(nil), lines[:t.maxItems]...)
+	out = append(out, fmt.Sprintf("+%d more item(s)", len(lines)-t.maxItems))
+	return out
 }
 
-func upstreamRemoteName(upstream string) string {
-	upstream = strings.TrimSpace(upstream)
-	if upstream == "" {
-		return ""
+func remoteStatusText(r git.RemoteInfo) string {
+	switch {
+	case !r.FetchURLValid && !r.PushURLValid:
+		return "status: invalid URL"
+	case r.ReachabilityChecked && !r.Reachable:
+		return "status: unreachable"
+	case r.ReachabilityChecked:
+		return "status: reachable"
+	default:
+		return "status: not probed"
 	}
-	if idx := strings.Index(upstream, "/"); idx > 0 {
-		return upstream[:idx]
+}
+
+func remoteStatusStyle(r git.RemoteInfo) lipgloss.Style {
+	switch {
+	case !r.FetchURLValid && !r.PushURLValid:
+		return treeDanger()
+	case r.ReachabilityChecked && !r.Reachable:
+		return treeDanger()
+	case r.ReachabilityChecked:
+		return treeSafe()
+	default:
+		return treeWarn()
 	}
-	return ""
+}
+
+func treeRoot() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color("#7BD8FF")).Bold(true)
+}
+func treeSection() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color("#F2C572")).Bold(true)
+}
+func treeValue() lipgloss.Style { return lipgloss.NewStyle().Foreground(lipgloss.Color("#DCE7EF")) }
+func treeMuted() lipgloss.Style { return lipgloss.NewStyle().Foreground(lipgloss.Color("#7A8B99")) }
+func treeSafe() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color("#7BD389")).Bold(true)
+}
+func treeWarn() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color("#F4B942")).Bold(true)
+}
+func treeDanger() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color("#FF8C73")).Bold(true)
+}
+
+func treeStatus(clean bool) lipgloss.Style {
+	if clean {
+		return treeSafe()
+	}
+	return treeWarn()
+}
+
+func treeItem(item string) lipgloss.Style {
+	switch {
+	case strings.HasPrefix(item, "? "):
+		return treeMuted()
+	case strings.HasPrefix(item, "D "):
+		return treeDanger()
+	default:
+		return treeWarn()
+	}
 }
 
 func hostFromRemote(raw string) string {

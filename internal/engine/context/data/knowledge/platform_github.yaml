@@ -1,0 +1,131 @@
+scenarios:
+  - id: github_admin_overview
+    summary: "GitHub 仓库管理分层总览：Release/PR/Rulesets/Actions/Webhooks/Security"
+    triggers:
+      platform: github
+    sop: |
+      GitHub repository administration should be planned in layers:
+      - Releases / deployments / environments
+      - Pull requests / reviews / requested reviewers / merge readiness
+      - Rulesets / branch protections / merge policy
+      - Actions / reusable workflows / permissions / secrets / variables
+      - Webhooks / Pages / Packages / Codespaces
+      - Advanced Security surfaces such as dependency graph, Dependabot, code scanning, CodeQL, secret protection, and push protection
+
+      Working order:
+      1. Inspect the current platform state first.
+      2. Separate file changes, Git operations, and platform_exec actions.
+      3. Prefer incremental changes with validate and rollback steps instead of changing multiple settings blindly.
+    pitfalls: |
+      - Do not treat repository settings APIs as Git CLI commands.
+      - Do not recommend destructive platform mutations before inspecting the current rulesets, environments, or secret scopes.
+      - Pages, Actions, Codespaces, and Advanced Security can be plan- or permission-gated; verify availability first.
+
+  - id: github_release_surface
+    summary: "GitHub Release 操作：inspect 当前发布 → mutate 创建/更新 → 验证 asset"
+    triggers:
+      platform: github
+      goal_contains:
+        - release
+        - 发布
+        - tag
+        - changelog
+        - release notes
+        - asset
+    sop: |
+      When the goal is release-oriented:
+      1. Prefer platform_exec capability "release" for inspecting current releases, latest release, or release-by-tag state.
+      2. Use mutate create/update with payload fields such as tag_name, name, body, draft, prerelease, and generate_release_notes.
+      3. If release assets or checksums are part of the goal, inspect the existing release first and validate asset presence after mutation.
+      4. If tags, notes, or release assets are still source-controlled files, pair file_write with platform_exec instead of forcing everything through Git alone.
+    pitfalls: |
+      - Do not invent unsupported release operations.
+      - Deleting a release asset is not automatically reversible unless the asset can be re-uploaded.
+
+  - id: github_pr_review_flow
+    summary: "GitHub PR 审查流程：inspect PR → 检查 CI/rulesets → approve/request_changes"
+    triggers:
+      platform: github
+      goal_contains:
+        - pull request
+        - pr
+        - review
+        - approval
+        - approve
+        - 审查
+        - 批准
+    sop: |
+      For GitHub pull request review goals:
+      1. Inspect the PR first, then inspect reviews or requested reviewers if the goal is approval or reviewer routing.
+      2. Prefer platform_exec capability "pr_review" with scope.pull_number for approve, request_changes, comment, dismiss, request_reviewers, or remove_reviewers.
+      3. Keep merge readiness separate from review actions: check CI, rulesets, approvals, and branch policies before suggesting approval or merge-adjacent actions.
+      4. When reviewer names are unknown, use needs_input placeholders instead of fabricating reviewer accounts or team slugs.
+    pitfalls: |
+      - Do not approve a PR when the goal is only to inspect or route reviewers.
+      - Do not recommend merge or approval when required checks or rulesets are still failing.
+
+  - id: github_pages_surface
+    summary: "GitHub Pages 配置与调试：inspect 配置/构建历史 → 修改 source/cname"
+    triggers:
+      platform: github
+      goal_contains:
+        - pages
+        - static site
+        - 站点
+        - 域名
+        - custom domain
+        - dns
+    sop: |
+      For GitHub Pages goals:
+      1. Inspect Pages configuration first, then inspect build history or latest build when debugging publishing failures.
+      2. Prefer platform_exec capability "pages" with inspect views such as build_history, build_detail, latest_build, or health.
+      3. Use mutate update/create for source, build_type, cname, and https_enforced changes; use mutate build when the site should be rebuilt.
+      4. Pair Pages configuration with workflow file changes when the site is published through GitHub Actions.
+    pitfalls: |
+      - Do not assume a custom domain is ready without checking Pages/domain state and DNS readiness.
+      - Do not mutate Pages blindly when the real problem is a failing build workflow in the repository.
+
+  - id: github_credentials_surface
+    summary: "GitHub 凭证管理：Actions/Codespaces/Dependabot secrets 与 deploy keys"
+    triggers:
+      platform: github
+      goal_contains:
+        - secret
+        - variable
+        - deploy key
+        - codespaces
+        - dependabot
+        - credential
+        - 密钥
+        - 变量
+    sop: |
+      For credential-management goals:
+      1. Decide the narrowest scope first: Actions repository scope, environment scope, Codespaces, Dependabot, or deploy keys.
+      2. Prefer platform_exec capabilities "actions_secrets_variables", "codespaces_secrets", "dependabot_secrets", or "deploy_keys" rather than pseudo-Git commands.
+      3. Use validate after every mutation, and remember that secret rollback requires caller-provided plaintext rollback payload.
+      4. If the goal is rotation, inspect current consumers first so the model does not break unrelated workflows or registries.
+    pitfalls: |
+      - Do not store a runtime secret in the wrong surface.
+      - Do not claim secret rollback is automatic when the old plaintext value is unavailable.
+
+  - id: github_packages_notifications
+    summary: "GitHub Packages 版本管理与通知订阅（watch/thread/inbox）"
+    triggers:
+      platform: github
+      goal_contains:
+        - package
+        - registry
+        - package version
+        - notification
+        - email notification
+        - watch
+        - 订阅
+    sop: |
+      For package or notification goals:
+      1. Packages: inspect owner scope, package type, package name, and versions before delete or restore.
+      2. Notifications: distinguish repository subscription, thread subscription, and inbox/thread inspection before mutating watch state.
+      3. Prefer platform_exec capability "packages", "notifications", or "email_notifications" with explicit scope/query fields instead of generic Git suggestions.
+      4. Validate the final state on the exact package, version, repository subscription, or thread subscription that changed.
+    pitfalls: |
+      - Do not delete an entire package when the goal only targets a single stale version.
+      - Do not promise rollback for mark_read because GitHub does not expose an inverse operation for that action.

@@ -13,15 +13,16 @@ const (
 	PrioSystemPrompt   Priority = 0
 	PrioCriticalState  Priority = 1
 	PrioUserGoal       Priority = 2
-	PrioKnowledge      Priority = 3
-	PrioRecentOps      Priority = 4
-	PrioFileInspect    Priority = 5
-	PrioCommitSummary  Priority = 6
-	PrioConfigState    Priority = 7
-	PrioExtendedState  Priority = 8
-	PrioSessionHistory Priority = 9
-	PrioPlatformState  Priority = 10
-	PrioLongTermMemory Priority = 11
+	PrioKnowledge        Priority = 3
+	PrioKnowledgeCatalog Priority = 4
+	PrioRecentOps        Priority = 5
+	PrioFileInspect      Priority = 6
+	PrioCommitSummary    Priority = 7
+	PrioConfigState      Priority = 8
+	PrioExtendedState    Priority = 9
+	PrioSessionHistory   Priority = 10
+	PrioPlatformState    Priority = 11
+	PrioLongTermMemory   Priority = 12
 )
 
 // Partition represents a named chunk of context content with priority.

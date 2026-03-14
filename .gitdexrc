@@ -1,0 +1,16 @@
+adapters:
+  github:
+    gh:
+      enabled: true
+      binary: "gh"
+    browser:
+      enabled: true
+      driver: "default"
+  gitlab:
+    browser:
+      enabled: true
+      driver: "default"
+  bitbucket:
+    browser:
+      enabled: true
+      driver: "default"

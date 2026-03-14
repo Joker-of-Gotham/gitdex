@@ -1,0 +1,51 @@
+scenarios:
+  - id: bitbucket_pr_pipeline_flow
+    summary: "Bitbucket PR/Pipeline 工作流：分支同步 → pipelines.yml 检查 → PR 创建/审查"
+    triggers:
+      platform:
+        - bitbucket
+      goal_contains:
+        - pull request
+        - pr
+        - review
+        - deployment
+        - pipeline
+    sop: |
+      Bitbucket Cloud workflow guide:
+      1. Confirm the active branch, upstream sync state, and whether the repository remote is reachable.
+      2. Before opening a PR, inspect bitbucket-pipelines.yml, deployment targets, branch permissions, and reviewer defaults.
+      3. For PR-related goals, prefer: verify local diff -> run tests/lint -> inspect open PRs -> prepare branch push -> then propose PR creation or review steps.
+      4. For deployment goals, verify environments, deployment variables, and the latest pipeline result before mutating YAML or release files.
+      5. If the repository uses branch restrictions or merge checks, avoid suggesting force-push or history rewrites unless the user explicitly asked for them.
+    pitfalls: |
+      - Do not fabricate reviewer names, deployment environments, or pipeline variables.
+      - If tokens, webhooks, or secret state are unknown, prefer a guarded inspection step or needs_input.
+
+  - id: bitbucket_admin_surface
+    summary: "Bitbucket 管理操作分层：变量/密钥/Webhook/分支限制/部署环境"
+    triggers:
+      platform:
+        - bitbucket
+      goal_contains:
+        - webhook
+        - secret
+        - variable
+        - deploy
+        - rules
+        - branch
+        - permissions
+    sop: |
+      Bitbucket administrative changes should be planned in layers:
+      - repository variables / workspace variables
+      - deploy keys and access tokens
+      - webhook endpoints and delivery expectations
+      - branch restrictions / merge checks / reviewers
+      - Pipelines deployment environments
+
+      When the goal targets one of these surfaces:
+      - first collect the current repository/platform state
+      - then propose file changes, CLI/API steps, and validation checks separately
+      - explicitly call out missing credentials, unknown workspace settings, or irreversible effects
+    pitfalls: |
+      - Do not treat repository settings like plain Git operations.
+      - Keep destructive settings changes behind an inspect step and a validation step.

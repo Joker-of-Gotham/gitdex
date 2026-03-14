@@ -19,6 +19,10 @@ type ConfigState struct {
 	Hooks              []string `json:"hooks,omitempty"`
 	CoreAutoCRLF       string   `json:"core_autocrlf,omitempty"`
 	PullRebase         string   `json:"pull_rebase,omitempty"`
+	MergeFF            string   `json:"merge_ff,omitempty"`
+	PushDefault        string   `json:"push_default,omitempty"`
+	FetchPrune         string   `json:"fetch_prune,omitempty"`
+	RerereEnabled      string   `json:"rerere_enabled,omitempty"`
 }
 
 func enrichConfigState(ctx context.Context, gitCLI cli.GitCLI, state *GitState) {
@@ -31,6 +35,10 @@ func enrichConfigState(ctx context.Context, gitCLI cli.GitCLI, state *GitState) 
 	cs.CredentialHelper = gitConfigGet(ctx, gitCLI, "credential.helper")
 	cs.CoreAutoCRLF = gitConfigGet(ctx, gitCLI, "core.autocrlf")
 	cs.PullRebase = gitConfigGet(ctx, gitCLI, "pull.rebase")
+	cs.MergeFF = gitConfigGet(ctx, gitCLI, "merge.ff")
+	cs.PushDefault = gitConfigGet(ctx, gitCLI, "push.default")
+	cs.FetchPrune = gitConfigGet(ctx, gitCLI, "fetch.prune")
+	cs.RerereEnabled = gitConfigGet(ctx, gitCLI, "rerere.enabled")
 
 	cs.SSHKeyFiles = detectSSHKeys()
 	cs.Hooks = detectHooks(ctx, gitCLI)

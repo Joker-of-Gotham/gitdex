@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/Joker-of-Gotham/gitdex/internal/platform"
 	"github.com/Joker-of-Gotham/gitdex/internal/platform/contributing"
@@ -22,6 +23,7 @@ type Client struct {
 	httpClient *http.Client
 	owner      string
 	repo       string
+	transport  githubTransport
 }
 
 // New creates a new GitHub API client.
@@ -29,10 +31,16 @@ func New(token, owner, repo string) *Client {
 	return &Client{
 		token:      token,
 		baseURL:    "https://api.github.com",
-		httpClient: &http.Client{},
+		httpClient: &http.Client{Timeout: 10 * time.Second},
 		owner:      owner,
 		repo:       repo,
 	}
+}
+
+func NewCLI(binary, owner, repo string) *Client {
+	client := New("", owner, repo)
+	client.transport = ghCLITransport{binary: binary}
+	return client
 }
 
 func (c *Client) doRequest(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
@@ -45,16 +53,193 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body interf
 		reqBody = bytes.NewReader(data)
 	}
 	reqURL := c.baseURL + path
-	req, err := http.NewRequestWithContext(ctx, method, reqURL, reqBody)
+	return c.doRequestAbsolute(ctx, method, reqURL, reqBody, map[string]string{
+		"Accept":               "application/vnd.github+json",
+		"X-GitHub-Api-Version": "2022-11-28",
+		"Content-Type":         "application/json",
+	})
+}
+
+func (c *Client) doRequestAbsolute(ctx context.Context, method, reqURL string, body io.Reader, headers map[string]string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, method, reqURL, body)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("Content-Type", "application/json")
+	for key, value := range headers {
+		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
+			continue
+		}
+		req.Header.Set(key, value)
+	}
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 	return c.httpClient.Do(req)
+}
+
+func (c *Client) doBinaryUpload(ctx context.Context, reqURL string, contentType string, body []byte, expected ...int) (json.RawMessage, error) {
+	if c.transport != nil {
+		return c.transport.binaryUpload(ctx, c, reqURL, contentType, body, expected...)
+	}
+	resp, err := c.doRequestAbsolute(ctx, http.MethodPost, reqURL, bytes.NewReader(body), map[string]string{
+		"Accept":               "application/vnd.github+json",
+		"X-GitHub-Api-Version": "2022-11-28",
+		"Content-Type":         firstNonEmpty(contentType, "application/octet-stream"),
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if !matchesStatus(resp.StatusCode, expected...) {
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return nil, fmt.Errorf("POST %s: status %d: %s", reqURL, resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, nil
+	}
+	return json.RawMessage(data), nil
+}
+
+func (c *Client) downloadBytes(ctx context.Context, reqURL string, accept string, expected ...int) ([]byte, error) {
+	if c.transport != nil {
+		return c.transport.downloadBytes(ctx, c, reqURL, accept, expected...)
+	}
+	resp, err := c.doRequestAbsolute(ctx, http.MethodGet, reqURL, nil, map[string]string{
+		"Accept":               firstNonEmpty(accept, "application/octet-stream"),
+		"X-GitHub-Api-Version": "2022-11-28",
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if !matchesStatus(resp.StatusCode, expected...) {
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return nil, fmt.Errorf("GET %s: status %d: %s", reqURL, resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	return data, nil
+}
+
+func (c *Client) doGraphQL(ctx context.Context, query string, variables map[string]any, out any) error {
+	body := map[string]any{
+		"query":     query,
+		"variables": variables,
+	}
+	raw, err := c.doRaw(ctx, http.MethodPost, "/graphql", body, http.StatusOK)
+	if err != nil {
+		return err
+	}
+	var envelope struct {
+		Data   json.RawMessage `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return fmt.Errorf("decode graphql envelope: %w", err)
+	}
+	if len(envelope.Errors) > 0 {
+		messages := make([]string, 0, len(envelope.Errors))
+		for _, item := range envelope.Errors {
+			if strings.TrimSpace(item.Message) != "" {
+				messages = append(messages, strings.TrimSpace(item.Message))
+			}
+		}
+		return fmt.Errorf("graphql: %s", strings.Join(messages, "; "))
+	}
+	if out == nil || len(envelope.Data) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(envelope.Data, out); err != nil {
+		return fmt.Errorf("decode graphql data: %w", err)
+	}
+	return nil
+}
+
+func (c *Client) repoPath(suffix string) string {
+	base := fmt.Sprintf("/repos/%s/%s", c.owner, c.repo)
+	if suffix == "" {
+		return base
+	}
+	if strings.HasPrefix(suffix, "/") {
+		return base + suffix
+	}
+	return base + "/" + suffix
+}
+
+func (c *Client) orgPath(suffix string) string {
+	base := fmt.Sprintf("/orgs/%s", c.owner)
+	if suffix == "" {
+		return base
+	}
+	if strings.HasPrefix(suffix, "/") {
+		return base + suffix
+	}
+	return base + "/" + suffix
+}
+
+func (c *Client) userPath(suffix string) string {
+	base := "/user"
+	if suffix == "" {
+		return base
+	}
+	if strings.HasPrefix(suffix, "/") {
+		return base + suffix
+	}
+	return base + "/" + suffix
+}
+
+func (c *Client) doJSON(ctx context.Context, method, path string, body interface{}, out interface{}, expected ...int) error {
+	raw, err := c.doRaw(ctx, method, path, body, expected...)
+	if err != nil {
+		return err
+	}
+	if out == nil || len(bytes.TrimSpace(raw)) == 0 {
+		return nil
+	}
+	return json.Unmarshal(raw, out)
+}
+
+func (c *Client) doRaw(ctx context.Context, method, path string, body interface{}, expected ...int) (json.RawMessage, error) {
+	if c.transport != nil {
+		return c.transport.raw(ctx, c, method, path, body, expected...)
+	}
+	resp, err := c.doRequest(ctx, method, path, body)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if !matchesStatus(resp.StatusCode, expected...) {
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return nil, fmt.Errorf("%s %s: status %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, nil
+	}
+	return json.RawMessage(data), nil
+}
+
+func matchesStatus(code int, expected ...int) bool {
+	if len(expected) == 0 {
+		return code >= 200 && code < 300
+	}
+	for _, item := range expected {
+		if code == item {
+			return true
+		}
+	}
+	return false
 }
 
 type ghPRRequest struct {

@@ -1,5 +1,6 @@
 scenarios:
   - id: fresh_repo_setup
+    summary: "新仓库初始化流程：确认状态、配置身份、创建 .gitignore/.gitattributes、首次提交"
     triggers:
       is_initial: true
       commit_count: 0
@@ -15,6 +16,7 @@ scenarios:
       - 新文件必须先显式 git add，git commit -a 不会包含未追踪文件
 
   - id: identity_not_configured
+    summary: "Git 身份未配置时的 user.name/user.email 设置流程"
     triggers:
       identity_configured: false
     sop: |
@@ -25,6 +27,7 @@ scenarios:
       - 没有配置身份会导致 commit 失败或使用错误身份
 
   - id: gitignore_setup
+    summary: "按项目类型创建 .gitignore 的模板与注意事项"
     triggers:
       is_initial: true
       has_gitignore: false
@@ -39,6 +42,7 @@ scenarios:
       - 需要 git rm --cached <file> 移除已跟踪但应忽略的文件
 
   - id: ssh_auth_setup
+    summary: "SSH 密钥生成、添加到平台、切换远程 URL 的完整流程"
     triggers:
       ssh_keys_empty: true
       has_remote: true

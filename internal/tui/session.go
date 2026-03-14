@@ -24,9 +24,10 @@ const maxGoalHistory = 20
 
 func (s SessionContext) ToPromptContext() prompt.SessionContext {
 	out := prompt.SessionContext{
-		ActiveGoal:     strings.TrimSpace(s.ActiveGoal),
-		SkippedActions: append([]string(nil), s.SkippedActions...),
-		Preferences:    map[string]string{},
+		ActiveGoal:       strings.TrimSpace(s.ActiveGoal),
+		ActiveGoalStatus: "",
+		SkippedActions:   append([]string(nil), s.SkippedActions...),
+		Preferences:      map[string]string{},
 	}
 	out.GoalHistory = make([]prompt.GoalRecord, 0, len(s.GoalHistory))
 	for _, h := range s.GoalHistory {

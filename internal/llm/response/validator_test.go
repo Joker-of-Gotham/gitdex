@@ -48,3 +48,24 @@ The user has modified main.go and added a new test file.
 Add unit tests and fix main entry point`
 	assert.Equal(t, "Add unit tests and fix main entry point", StripThinking(input))
 }
+
+func TestExtractThinking_SupportsThinkingTag(t *testing.T) {
+	input := `<thinking>inspect branch and remotes</thinking>{"analysis":"ok","suggestions":[]}`
+	thinking, output := ExtractThinking(input)
+	assert.Equal(t, "inspect branch and remotes", thinking)
+	assert.Equal(t, `{"analysis":"ok","suggestions":[]}`, output)
+}
+
+func TestExtractThinking_SupportsReasoningFence(t *testing.T) {
+	input := "```reasoning\nstep 1\nstep 2\n```\n[{\"action\":\"Inspect\",\"argv\":[\"git\",\"status\"],\"reason\":\"safe\",\"risk\":\"safe\"}]"
+	thinking, output := ExtractThinking(input)
+	assert.Contains(t, thinking, "step 1")
+	assert.Contains(t, output, `"action":"Inspect"`)
+}
+
+func TestExtractThinking_SupportsReasoningPrefixBeforeJSON(t *testing.T) {
+	input := "Reasoning: branch is already current, inspect instead.\n{\"analysis\":\"ok\",\"suggestions\":[]}"
+	thinking, output := ExtractThinking(input)
+	assert.Equal(t, "branch is already current, inspect instead.", thinking)
+	assert.Equal(t, `{"analysis":"ok","suggestions":[]}`, output)
+}

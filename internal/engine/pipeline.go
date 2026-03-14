@@ -17,13 +17,14 @@ import (
 )
 
 type AnalyzeResult struct {
-	Suggestions  []git.Suggestion
-	Analysis     string
-	Thinking     string
-	PlanOverview string
-	GoalStatus   string
-	DebugInfo    AnalyzeDebugInfo
-	Trace        AnalysisTrace
+	Suggestions      []git.Suggestion
+	Analysis         string
+	Thinking         string
+	PlanOverview     string
+	GoalStatus       string
+	KnowledgeRequest []string
+	DebugInfo        AnalyzeDebugInfo
+	Trace            AnalysisTrace
 }
 
 // AnalyzeDebugInfo provides transparency about the analysis pipeline.
@@ -37,6 +38,7 @@ type AnalyzeDebugInfo struct {
 
 type AnalyzeOptions struct {
 	Session         *prompt.SessionContext
+	Workflow        *prompt.WorkflowOrchestration
 	AnalysisHistory []string
 	PlatformState   *prompt.PlatformState
 	Memory          *prompt.MemoryContext
@@ -76,32 +78,60 @@ func NewPipelineWithLLM(mode string, llmProvider llm.LLMProvider, opts interface
 }
 
 func (p *Pipeline) Analyze(ctx context.Context, state *status.GitState, recentOps []prompt.OperationRecord, opts AnalyzeOptions) (*AnalyzeResult, error) {
+	return p.analyzeInternal(ctx, state, recentOps, opts, false)
+}
+
+func (p *Pipeline) analyzeInternal(ctx context.Context, state *status.GitState, recentOps []prompt.OperationRecord, opts AnalyzeOptions, isKnowledgeRetry bool) (*AnalyzeResult, error) {
+	if state == nil {
+		return nil, fmt.Errorf("git state is required for analysis")
+	}
 	if p.llmProvider == nil || !p.llmProvider.IsAvailable(ctx) {
-		return nil, fmt.Errorf("LLM not available; start Ollama and select a model")
+		return nil, fmt.Errorf("LLM not available; configure a supported provider and model")
 	}
 
 	optsLocal := opts
 	if p.platformCollector != nil && optsLocal.PlatformState == nil {
 		if platformState := p.platformCollector.Collect(ctx, state); platformState != nil {
+			if optsLocal.Session != nil {
+				platform.ApplyGoalRecommendations(platformState, optsLocal.Session.ActiveGoal, 5)
+			}
 			optsLocal.PlatformState = toPromptPlatformState(platformState)
 		}
 	}
 	if len(optsLocal.Knowledge) == 0 && p.retriever != nil {
-		optsLocal.Knowledge = p.retriever.Retrieve(state)
+		activeGoal := ""
+		if optsLocal.Session != nil {
+			activeGoal = optsLocal.Session.ActiveGoal
+		}
+		optsLocal.Knowledge = p.retriever.RetrieveWithGoal(state, activeGoal)
 	}
 	fileCtx := CollectFileContext(ctx, state)
 
+	var knowledgeCatalog []prompt.KnowledgeCatalogEntry
+	if p.retriever != nil {
+		for _, entry := range p.retriever.Catalog() {
+			knowledgeCatalog = append(knowledgeCatalog, prompt.KnowledgeCatalogEntry{
+				ID:       entry.ID,
+				Source:   entry.Source,
+				Summary:  entry.Summary,
+				Triggers: entry.Triggers,
+			})
+		}
+	}
+
 	builder := prompt.NewBuilderWithBudget(p.contextBudget)
 	input := prompt.AnalyzeInput{
-		State:           state,
-		Mode:            p.mode,
-		RecentOps:       recentOps,
-		Session:         optsLocal.Session,
-		AnalysisHistory: optsLocal.AnalysisHistory,
-		PlatformState:   optsLocal.PlatformState,
-		Memory:          optsLocal.Memory,
-		Knowledge:       optsLocal.Knowledge,
-		FileContext:     fileCtx,
+		State:            state,
+		Mode:             p.mode,
+		RecentOps:        recentOps,
+		Session:          optsLocal.Session,
+		Workflow:         optsLocal.Workflow,
+		AnalysisHistory:  optsLocal.AnalysisHistory,
+		PlatformState:    optsLocal.PlatformState,
+		Memory:           optsLocal.Memory,
+		Knowledge:        optsLocal.Knowledge,
+		KnowledgeCatalog: knowledgeCatalog,
+		FileContext:      fileCtx,
 	}
 	system, user := builder.BuildAnalyzeRich(input)
 	buildTrace := builder.LastBuildTrace()
@@ -129,6 +159,7 @@ func (p *Pipeline) Analyze(ctx context.Context, state *status.GitState, recentOp
 		Knowledge:      append([]prompt.KnowledgeFragment(nil), optsLocal.Knowledge...),
 		Memory:         optsLocal.Memory,
 		PlatformState:  optsLocal.PlatformState,
+		Workflow:       optsLocal.Workflow,
 	}
 
 	resp, err := llm.GenerateText(ctx, p.llmProvider, llm.GenerateRequest{
@@ -141,14 +172,23 @@ func (p *Pipeline) Analyze(ctx context.Context, state *status.GitState, recentOp
 	if err != nil {
 		return nil, fmt.Errorf("LLM: %w", err)
 	}
-	trace.RawResponse = resp.Text
+	trace.RawResponse = strings.TrimSpace(resp.Raw)
+	if trace.RawResponse == "" {
+		trace.RawResponse = resp.Text
+	}
 
-	thinking, cleaned := response.ExtractThinking(resp.Text)
+	tagThinking, cleaned := response.ExtractThinking(resp.Text)
+	thinking := strings.TrimSpace(resp.Thinking)
+	if thinking == "" {
+		thinking = tagThinking
+	} else if tagThinking != "" && !strings.Contains(thinking, tagThinking) {
+		thinking = thinking + "\n\n" + tagThinking
+	}
 	trace.CleanedResponse = cleaned
 	parsed, parseErr := parseLLMResponse(state, cleaned)
 	if parseErr != nil {
 		debug.ParseLog = "parse failed: " + parseErr.Error()
-		raw := normalizedRawResponseForDisplay(resp.Text, cleaned)
+		raw := normalizedRawResponseForDisplay(trace.RawResponse, cleaned)
 		return &AnalyzeResult{
 			Analysis:  fmt.Sprintf("AI output could not be parsed into the expected JSON suggestion format.\n\nRaw response:\n%s", truncateForDisplay(raw, 800)),
 			Thinking:  thinking,
@@ -160,7 +200,28 @@ func (p *Pipeline) Analyze(ctx context.Context, state *status.GitState, recentOp
 	trace.Rejected = append([]string(nil), parsed.rejected...)
 
 	parsed.suggestions = suppressRepeatedSuccessfulSuggestions(parsed.suggestions, recentOps)
-	parsed.suggestions = ValidateSuggestionsAgainstState(parsed.suggestions, state)
+	parsed.suggestions = suppressSemanticDuplicates(parsed.suggestions, recentOps)
+	validSuggestions, validationIssues := ValidateSuggestionsWithIssues(parsed.suggestions, state)
+	parsed.suggestions = validSuggestions
+	for _, issue := range validationIssues {
+		trace.Rejected = append(trace.Rejected, issue.Reason)
+	}
+	if len(validationIssues) > 0 {
+		repaired, repairIssues, repairErr := p.repairRejectedSuggestions(ctx, state, validationIssues)
+		if repairErr == nil && len(repaired) > 0 {
+			parsed.suggestions = append(parsed.suggestions, repaired...)
+			debug.ParseLog += fmt.Sprintf(" -> repaired:%d", len(repaired))
+			if strings.TrimSpace(parsed.analysis) != "" {
+				parsed.analysis = strings.TrimSpace(parsed.analysis + fmt.Sprintf("\n\nRepaired %d invalid suggestion(s) to match the current repository state.", len(repaired)))
+			}
+		} else if repairErr != nil {
+			debug.ParseLog += " -> repair_failed"
+			trace.Rejected = append(trace.Rejected, "repair failed: "+repairErr.Error())
+		}
+		for _, issue := range repairIssues {
+			trace.Rejected = append(trace.Rejected, "repair rejected: "+issue.Reason)
+		}
+	}
 	if p.secondaryOn && strings.TrimSpace(p.secondaryModel) != "" {
 		verified, fixes, verifyErr := newVerifier(p.llmProvider, p.secondaryModel).Verify(ctx, state, parsed.suggestions)
 		if verifyErr == nil {
@@ -171,14 +232,23 @@ func (p *Pipeline) Analyze(ctx context.Context, state *status.GitState, recentOp
 		}
 	}
 
+	if !isKnowledgeRetry && len(parsed.knowledgeRequest) > 0 && len(parsed.suggestions) == 0 && p.retriever != nil {
+		extra := p.retriever.FetchByIDs(parsed.knowledgeRequest)
+		if len(extra) > 0 {
+			optsLocal.Knowledge = append(optsLocal.Knowledge, extra...)
+			return p.analyzeInternal(ctx, state, recentOps, optsLocal, true)
+		}
+	}
+
 	return &AnalyzeResult{
-		Suggestions:  parsed.suggestions,
-		Analysis:     parsed.analysis,
-		Thinking:     thinking,
-		PlanOverview: parsed.planOverview,
-		GoalStatus:   parsed.goalStatus,
-		DebugInfo:    debug,
-		Trace:        trace,
+		Suggestions:      parsed.suggestions,
+		Analysis:         parsed.analysis,
+		Thinking:         thinking,
+		PlanOverview:     parsed.planOverview,
+		GoalStatus:       parsed.goalStatus,
+		KnowledgeRequest: parsed.knowledgeRequest,
+		DebugInfo:        debug,
+		Trace:            trace,
 	}, nil
 }
 
@@ -203,6 +273,11 @@ func (p *Pipeline) SetSecondaryModel(model string, enabled bool) {
 
 func (p *Pipeline) SetContextBudget(tokens int) {
 	p.contextBudget = tokens
+}
+
+func (p *Pipeline) SetLLMProvider(provider llm.LLMProvider, cfg config.LLMConfig) {
+	p.llmProvider = provider
+	p.applyLLMConfig(cfg)
 }
 
 func (p *Pipeline) applyLLMConfig(cfg config.LLMConfig) {
@@ -239,14 +314,30 @@ func toPromptPlatformState(in *platform.PlatformState) *prompt.PlatformState {
 		Detected:      in.Detected,
 		DefaultBranch: in.DefaultBranch,
 		CIStatus:      in.CIStatus,
+		Capabilities:  append([]string(nil), in.Capabilities...),
+		AdminSummary:  append([]string(nil), in.AdminSummary...),
+		SurfaceStates: append([]string(nil), in.SurfaceStates...),
 		LastError:     in.LastError,
 	}
 	out.OpenPRs = make([]prompt.PRSummary, 0, len(in.OpenPRs))
+	out.Playbooks = make([]prompt.CapabilityPlaybook, 0, len(in.Playbooks))
 	for _, pr := range in.OpenPRs {
 		out.OpenPRs = append(out.OpenPRs, prompt.PRSummary{
 			Number: pr.Number,
 			Title:  pr.Title,
 			URL:    pr.URL,
+		})
+	}
+	for _, playbook := range in.Playbooks {
+		out.Playbooks = append(out.Playbooks, prompt.CapabilityPlaybook{
+			ID:       playbook.ID,
+			Label:    playbook.Label,
+			Category: playbook.Category,
+			DocsURL:  playbook.DocsURL,
+			Inspect:  append([]string(nil), playbook.Inspect...),
+			Apply:    append([]string(nil), playbook.Apply...),
+			Verify:   append([]string(nil), playbook.Verify...),
+			Score:    playbook.Score,
 		})
 	}
 	return out

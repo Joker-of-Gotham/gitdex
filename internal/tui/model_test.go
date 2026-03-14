@@ -26,7 +26,8 @@ func TestCollectRecentOps_IgnoresUserActions(t *testing.T) {
 
 	assert.Len(t, ops, 1)
 	assert.Equal(t, "git commit -m \"Fix commit failure\"", ops[0].Command)
-	assert.Equal(t, "failed: nothing added to commit", ops[0].Result)
+	assert.Equal(t, "failed", ops[0].Result)
+	assert.Equal(t, "nothing added to commit", ops[0].Output)
 }
 
 func TestBestErrorDetail_UsesStdoutWhenStderrEmpty(t *testing.T) {

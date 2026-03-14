@@ -1,55 +1,64 @@
 scenarios:
   - id: recovery_triage
+    summary: "恢复问题分诊决策树：未提交/已提交/已推送的不同恢复策略"
     triggers:
       always: true
     sop: |
-      事故分诊决策树:
-      Q1: 改动是否已提交?
-        No → Q2: 文件是新文件(untracked)还是已跟踪?
-          新文件 → 无法用 git 恢复，检查编辑器/IDE 缓存
-          已跟踪 → git restore <file> 或 git checkout -- <file>
-        Yes → Q3: 提交是否已推送到远端?
-          No → Q4: 是最后一个提交吗?
-            最后一个 → git reset --soft HEAD~1 (保留改动在暂存区)
-            更早的 → git rebase -i 或 git reset --soft <commit>
-          Yes → git revert <commit> (创建反向提交)
-      紧急恢复: git reflog → 找到目标 → git reset --hard <hash>
+      恢复问题分诊:
+      Q1: 改动是否已经 commit?
+        No:
+          - 新文件且未跟踪: Git 无法直接恢复，优先检查编辑器/IDE 本地历史。
+          - 已跟踪文件: 用 git restore <file> 撤销工作区改动。
+        Yes:
+          Q2: 该提交是否已经推送到远端?
+            No:
+              - 最后一个提交: git reset --soft HEAD~1
+              - 更早的提交: git rebase -i 或 git reset --soft <commit>
+            Yes:
+              - 用 git revert <commit> 创建反向提交，不直接改写共享历史。
+      极端恢复:
+      - git reflog 找到目标位置
+      - git branch rescue/<name> <hash> 或 git reset --hard <hash>
+    pitfalls: |
+      - 不要把“未推送的历史改写”方案直接用于已经共享的远端提交。
+      - git reset --hard 前必须确认当前工作区不再需要保留。
 
   - id: undo_working_changes
+    summary: "撤销工作区改动：git restore 单个/多个/全部文件"
     triggers:
       working_count_gt: 0
     sop: |
       撤销工作区改动:
-      单个文件: git restore <file>
-      全部文件: git restore .
-      只撤销暂存: git restore --staged <file>
-      同时撤销暂存和工作区: git restore --staged --worktree <file>
-    pitfalls:
-      - git restore 丢弃的工作区改动无法恢复
-      - 大量改动丢弃前建议 git stash 备份
+      - 单个文件: git restore <file>
+      - 多个文件: git restore <file-a> <file-b>
+      - 全部文件: git restore .
+      - 同时取消暂存和工作区内容: git restore --staged --worktree <file>
+    pitfalls: |
+      - git restore 丢弃的工作区改动无法从 Git 恢复。
+      - 大量改动放弃前，优先考虑 git stash push -u 做一次备份。
 
   - id: undo_staged_changes
+    summary: "撤销暂存区改动：git restore --staged 取消已 add 但未 commit 的内容"
     triggers:
       staged_count_gt: 0
     sop: |
-      撤销暂存区改动（已 add 但未 commit）:
-      单个: git restore --staged <file>
-      全部: git restore --staged .
-      改动会回到工作区，不会丢失
-    pitfalls:
-      - 这只是取消暂存，文件内容不变
-      - 和 git reset HEAD <file> 效果相同
+      撤销暂存区改动（已 add 但尚未 commit）:
+      - 单个文件: git restore --staged <file>
+      - 全部已暂存文件: git restore --staged .
+      - 如果还要同时恢复工作区，再追加 --worktree
+    pitfalls: |
+      - 这一步只是把内容从暂存区放回工作区，不会自动删除文件内容。
+      - 不要把 restore --staged 和 reset --hard 混为一谈。
 
   - id: reflog_rescue
+    summary: "Reflog 救援三步：查看 reflog → 找目标 hash → 建救援分支"
     triggers:
       always: false
     sop: |
-      Reflog 救援三步曲:
-      1. git reflog — 查看最近 HEAD 移动记录
-      2. 找到目标状态的 hash
-      3. git reset --hard <hash> 或 git checkout <hash>
-      也可以: git branch rescue-branch <hash>
-    pitfalls:
-      - reflog 默认保留 90 天
-      - reflog 只记录 HEAD 移动，不包含从未提交的改动
-      - 恢复前先确认当前工作区已保存或 stash
+      Reflog 救援三步:
+      1. git reflog
+      2. 找到目标 hash 或 HEAD@{n}
+      3. 用 git branch rescue/<name> <hash> 保留现场，再决定是否 reset
+    pitfalls: |
+      - 优先先建救援分支，再做 reset 或 checkout。
+      - reflog 记录 HEAD 移动，不会替你恢复从未提交过的新文件内容。

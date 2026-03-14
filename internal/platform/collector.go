@@ -21,11 +21,15 @@ type PRSummary struct {
 }
 
 type PlatformState struct {
-	Detected      string      `json:"detected"`
-	DefaultBranch string      `json:"default_branch,omitempty"`
-	CIStatus      string      `json:"ci_status,omitempty"`
-	OpenPRs       []PRSummary `json:"open_prs,omitempty"`
-	LastError     string      `json:"last_error,omitempty"`
+	Detected      string               `json:"detected"`
+	DefaultBranch string               `json:"default_branch,omitempty"`
+	CIStatus      string               `json:"ci_status,omitempty"`
+	OpenPRs       []PRSummary          `json:"open_prs,omitempty"`
+	Capabilities  []string             `json:"capabilities,omitempty"`
+	AdminSummary  []string             `json:"admin_summary,omitempty"`
+	SurfaceStates []string             `json:"surface_states,omitempty"`
+	Playbooks     []CapabilityPlaybook `json:"playbooks,omitempty"`
+	LastError     string               `json:"last_error,omitempty"`
 }
 
 type Collector struct {
@@ -61,8 +65,12 @@ func (c *Collector) Collect(ctx context.Context, state *status.GitState) *Platfo
 
 	p := DetectPlatform(remoteURL)
 	out := &PlatformState{
-		Detected: platformToString(p),
+		Detected: p.String(),
 		CIStatus: "unknown",
+	}
+	out.Capabilities = CapabilityIDs(p)
+	if len(out.Capabilities) > 0 {
+		out.AdminSummary = append(out.AdminSummary, fmt.Sprintf("capability_catalog=%d", len(out.Capabilities)))
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -70,7 +78,6 @@ func (c *Collector) Collect(ctx context.Context, state *status.GitState) *Platfo
 
 	switch p {
 	case PlatformGitHub:
-		// Keep network collection explicit and controllable.
 		if c.githubToken == "" {
 			return out
 		}
@@ -88,7 +95,9 @@ func (c *Collector) Collect(ctx context.Context, state *status.GitState) *Platfo
 		if c.bitbucketToken == "" {
 			return out
 		}
-		// Reserved for future expansion.
+		if err := c.collectBitbucket(ctx, remoteURL, state.LocalBranch.Name, out); err != nil {
+			out.LastError = err.Error()
+		}
 	default:
 	}
 	return out
@@ -144,6 +153,10 @@ func (c *Collector) collectGitHub(ctx context.Context, remoteURL, branch string,
 			out.CIStatus = normalizeCIStatus(statusResp.State)
 		}
 	}
+	c.collectSurfaceStates(ctx, PlatformGitHub, repoPath, map[string]string{
+		"Authorization": "Bearer " + c.githubToken,
+		"Accept":        "application/vnd.github+json",
+	}, out)
 	return nil
 }
 
@@ -195,6 +208,121 @@ func (c *Collector) collectGitLab(ctx context.Context, remoteURL, branch string,
 			out.CIStatus = normalizeCIStatus(pipelines[0].Status)
 		}
 	}
+
+	c.collectSurfaceStates(ctx, PlatformGitLab, base, map[string]string{
+		"PRIVATE-TOKEN": c.gitlabToken,
+	}, out)
+
+	return nil
+}
+
+func (c *Collector) probeEndpoint(ctx context.Context, endpoint string, headers map[string]string) string {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "unavailable"
+	}
+	for k, v := range headers {
+		if strings.TrimSpace(v) != "" {
+			req.Header.Set(k, v)
+		}
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "unavailable"
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "unavailable"
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 128))
+	if len(strings.TrimSpace(string(body))) == 0 {
+		return "empty"
+	}
+	return "available"
+}
+
+func (c *Collector) collectSurfaceStates(ctx context.Context, platform Platform, basePath string, headers map[string]string, out *PlatformState) {
+	probes := CapabilityProbes(platform)
+	for _, probe := range probes {
+		state := c.probeEndpoint(ctx, basePath+probe.RelativePath, headers)
+		out.SurfaceStates = append(out.SurfaceStates, fmt.Sprintf("%s=%s", probe.CapabilityID, state))
+	}
+	if len(out.SurfaceStates) > 0 {
+		out.AdminSummary = append(out.AdminSummary, out.SurfaceStates...)
+	}
+}
+
+func (c *Collector) collectBitbucket(ctx context.Context, remoteURL, branch string, out *PlatformState) error {
+	workspace, repo, err := parseBitbucketWorkspaceRepo(remoteURL)
+	if err != nil {
+		return err
+	}
+
+	base := fmt.Sprintf("https://api.bitbucket.org/2.0/repositories/%s/%s", url.PathEscape(workspace), url.PathEscape(repo))
+
+	var repository struct {
+		Mainbranch struct {
+			Name string `json:"name"`
+		} `json:"mainbranch"`
+	}
+	if err := c.getJSON(ctx, base, map[string]string{
+		"Authorization": "Bearer " + c.bitbucketToken,
+	}, &repository); err == nil {
+		out.DefaultBranch = strings.TrimSpace(repository.Mainbranch.Name)
+	}
+
+	var pulls struct {
+		Values []struct {
+			ID    int    `json:"id"`
+			Title string `json:"title"`
+			Links struct {
+				HTML struct {
+					Href string `json:"href"`
+				} `json:"html"`
+			} `json:"links"`
+		} `json:"values"`
+	}
+	if err := c.getJSON(ctx, base+"/pullrequests?state=OPEN&pagelen=5", map[string]string{
+		"Authorization": "Bearer " + c.bitbucketToken,
+	}, &pulls); err == nil {
+		for _, pr := range pulls.Values {
+			out.OpenPRs = append(out.OpenPRs, PRSummary{
+				Number: pr.ID,
+				Title:  pr.Title,
+				URL:    pr.Links.HTML.Href,
+			})
+		}
+	}
+
+	ref := strings.TrimSpace(branch)
+	if ref == "" {
+		ref = strings.TrimSpace(out.DefaultBranch)
+	}
+	if ref != "" {
+		var pipelines struct {
+			Values []struct {
+				State struct {
+					Name   string `json:"name"`
+					Result struct {
+						Name string `json:"name"`
+					} `json:"result"`
+				} `json:"state"`
+			} `json:"values"`
+		}
+		if err := c.getJSON(ctx, base+"/pipelines/?sort=-created_on&target.ref_name="+url.QueryEscape(ref)+"&pagelen=1", map[string]string{
+			"Authorization": "Bearer " + c.bitbucketToken,
+		}, &pipelines); err == nil && len(pipelines.Values) > 0 {
+			stateName := pipelines.Values[0].State.Result.Name
+			if strings.TrimSpace(stateName) == "" {
+				stateName = pipelines.Values[0].State.Name
+			}
+			out.CIStatus = normalizeCIStatus(stateName)
+		}
+	}
+
+	c.collectSurfaceStates(ctx, PlatformBitbucket, base, map[string]string{
+		"Authorization": "Bearer " + c.bitbucketToken,
+	}, out)
 
 	return nil
 }
@@ -252,6 +380,22 @@ func parseGitLabProjectPath(remoteURL string) (string, error) {
 	return "", fmt.Errorf("unsupported gitlab remote url")
 }
 
+func parseBitbucketWorkspaceRepo(remoteURL string) (workspace, repo string, err error) {
+	remoteURL = strings.TrimSpace(remoteURL)
+	if strings.HasPrefix(remoteURL, "git@bitbucket.org:") {
+		path := strings.TrimPrefix(remoteURL, "git@bitbucket.org:")
+		return splitOwnerRepo(path)
+	}
+	if strings.HasPrefix(remoteURL, "https://bitbucket.org/") || strings.HasPrefix(remoteURL, "http://bitbucket.org/") {
+		u, parseErr := url.Parse(remoteURL)
+		if parseErr != nil {
+			return "", "", parseErr
+		}
+		return splitOwnerRepo(strings.TrimPrefix(u.Path, "/"))
+	}
+	return "", "", fmt.Errorf("unsupported bitbucket remote url")
+}
+
 func splitOwnerRepo(path string) (string, string, error) {
 	path = normalizeRepoPath(path)
 	parts := strings.Split(path, "/")
@@ -276,19 +420,6 @@ func normalizeCIStatus(raw string) string {
 		return "failing"
 	case "pending", "running":
 		return "pending"
-	default:
-		return "unknown"
-	}
-}
-
-func platformToString(p Platform) string {
-	switch p {
-	case PlatformGitHub:
-		return "github"
-	case PlatformGitLab:
-		return "gitlab"
-	case PlatformBitbucket:
-		return "bitbucket"
 	default:
 		return "unknown"
 	}

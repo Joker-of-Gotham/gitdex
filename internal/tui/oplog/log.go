@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/mattn/go-runewidth"
 )
 
 const (
@@ -101,10 +103,7 @@ func (l *Log) ViewWithOffset(width, height, offset int) string {
 	if len(visible) == 0 {
 		visible = []string{"(no operations yet)"}
 	}
-	for i := range visible {
-		visible[i] = trimForWidth(visible[i], width)
-	}
-	return strings.Join(visible, "\n")
+	return strings.Join(wrapLines(visible, width), "\n")
 }
 
 func (l *Log) lines(width int) []string {
@@ -126,21 +125,21 @@ func (l *Log) lines(width int) []string {
 			lines = append(lines, fmt.Sprintf("         %s", strings.TrimSpace(e.Detail)))
 		}
 	}
-	for i := range lines {
-		lines[i] = trimForWidth(lines[i], width)
-	}
-	return lines
+	return wrapLines(lines, width)
 }
 
-func trimForWidth(s string, width int) string {
+func wrapLines(lines []string, width int) []string {
 	if width <= 0 {
-		return s
+		return lines
 	}
-	if len(s) <= width {
-		return s
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			out = append(out, "")
+			continue
+		}
+		wrapped := runewidth.Wrap(line, width)
+		out = append(out, strings.Split(wrapped, "\n")...)
 	}
-	if width <= 3 {
-		return s[:width]
-	}
-	return s[:width-3] + "..."
+	return out
 }

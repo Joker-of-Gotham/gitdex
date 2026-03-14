@@ -56,12 +56,12 @@ func TestLocalesKeepStableKnownTranslations(t *testing.T) {
 		"zh": {
 			"language_select.title": "选择界面语言",
 			"analysis.title":        "AI 分析",
-			"suggestions.advisory":  "(仅查看；不会执行命令；按 y 标记为已查看)",
+			"suggestions.advisory":  "（仅查看；不会执行命令；按 y 标记为已查看）",
 		},
 		"ja": {
 			"language_select.title": "表示言語を選択",
 			"analysis.title":        "AI 分析",
-			"suggestions.advisory":  "(閲覧のみ。コマンドは実行されません。y で確認済みにします)",
+			"suggestions.advisory":  "（閲覧のみ。コマンドは実行されません。y で確認済みにします）",
 		},
 	}
 

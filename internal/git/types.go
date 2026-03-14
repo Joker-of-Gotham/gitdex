@@ -1,5 +1,7 @@
 package git
 
+import "encoding/json"
+
 type FileStatusCode byte
 
 const (
@@ -92,6 +94,8 @@ const (
 	ConflictGuide
 	// RecoveryGuide: undo/restore decision guide
 	RecoveryGuide
+	// PlatformExec: execute a platform admin flow through a first-class executor
+	PlatformExec
 )
 
 // FileWriteInfo describes a file operation (create/update/delete/read).
@@ -113,6 +117,7 @@ const (
 	ExecRunning
 	ExecDone
 	ExecFailed
+	ExecSkipped
 )
 
 // InputField defines a user-input parameter required by a NeedsInput suggestion.
@@ -122,6 +127,18 @@ type InputField struct {
 	Placeholder  string // hint text shown in the input box
 	ArgIndex     int    // argv index to replace with the user's value
 	DefaultValue string // optional initial value shown to the user
+}
+
+type PlatformExecInfo struct {
+	CapabilityID    string            `json:"capability_id"`
+	Flow            string            `json:"flow"` // inspect|mutate|validate|rollback
+	Operation       string            `json:"operation,omitempty"`
+	ResourceID      string            `json:"resource_id,omitempty"`
+	Scope           map[string]string `json:"scope,omitempty"`
+	Query           map[string]string `json:"query,omitempty"`
+	Payload         json.RawMessage   `json:"payload,omitempty"`
+	ValidatePayload json.RawMessage   `json:"validate_payload,omitempty"`
+	RollbackPayload json.RawMessage   `json:"rollback_payload,omitempty"`
 }
 
 type Suggestion struct {
@@ -137,6 +154,7 @@ type Suggestion struct {
 	Interaction InteractionMode // how TUI should handle this suggestion
 	Inputs      []InputField    // required inputs for NeedsInput mode
 	FileOp      *FileWriteInfo  // non-nil when Interaction == FileWrite
+	PlatformOp  *PlatformExecInfo
 }
 
 type SuggestionSource int

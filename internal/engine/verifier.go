@@ -12,6 +12,38 @@ import (
 	"github.com/Joker-of-Gotham/gitdex/internal/llm"
 )
 
+type repoStateSnapshot struct {
+	Branch         string   `json:"branch"`
+	Upstream       string   `json:"upstream,omitempty"`
+	Remotes        []string `json:"remotes,omitempty"`
+	LocalBranches  []string `json:"local_branches,omitempty"`
+	RemoteBranches []string `json:"remote_branches,omitempty"`
+	Tags           []string `json:"tags,omitempty"`
+	WorkingFiles   []string `json:"working_files,omitempty"`
+	StagedFiles    []string `json:"staged_files,omitempty"`
+}
+
+func buildRepoStateSnapshot(state *status.GitState) repoStateSnapshot {
+	if state == nil {
+		return repoStateSnapshot{}
+	}
+	snap := repoStateSnapshot{
+		Branch:         strings.TrimSpace(state.LocalBranch.Name),
+		Upstream:       strings.TrimSpace(state.LocalBranch.Upstream),
+		Remotes:        append([]string(nil), state.Remotes...),
+		LocalBranches:  append([]string(nil), state.LocalBranches...),
+		RemoteBranches: append([]string(nil), state.RemoteBranches...),
+		Tags:           append([]string(nil), state.Tags...),
+	}
+	for _, item := range state.WorkingTree {
+		snap.WorkingFiles = append(snap.WorkingFiles, item.Path)
+	}
+	for _, item := range state.StagingArea {
+		snap.StagedFiles = append(snap.StagedFiles, item.Path)
+	}
+	return snap
+}
+
 type verifyResponseJSON struct {
 	Suggestions []verifySuggestionJSON `json:"suggestions"`
 }
@@ -65,6 +97,9 @@ func (v *verifier) Verify(ctx context.Context, state *status.GitState, suggestio
 			continue
 		}
 		s := out[item.Index]
+		if s.Interaction == git.PlatformExec {
+			continue
+		}
 		changed := false
 
 		if len(item.Argv) > 0 && strings.EqualFold(item.Argv[0], "git") {
@@ -110,6 +145,10 @@ For each suggestion, verify:
 2) placeholder-like arguments
 3) risk level correctness
 4) interaction type correctness
+5) whether the command actually makes sense for the provided repository state
+
+If a suggestion uses interaction "platform_exec", do not rewrite its payload or platform metadata.
+Only mention issues if the suggestion is obviously malformed.
 
 Return strict JSON only:
 {
@@ -118,7 +157,7 @@ Return strict JSON only:
       "index": 0,
       "argv": ["git","push","-u","origin","main"],
       "risk": "safe|caution|dangerous",
-      "interaction": "auto|needs_input|info|file_write",
+      "interaction": "auto|needs_input|info|file_write|platform_exec",
       "issues": ["..."]
     }
   ]
@@ -127,6 +166,13 @@ Return strict JSON only:
 Rules:
 - Keep suggestion count/order by using index.
 - If no change is needed for a suggestion, you may omit it from output.
+- Never keep a command that references a missing remote, missing branch, missing tag, or missing file path.
+- Reject duplicate branch creation and switching to the current branch.
+- Prefer modern intent-specific commands when obvious:
+  - branch switch: git switch <branch>
+  - restore files: git restore ...
+- If a checkout-style command is clearly a branch switch, rewrite argv to git switch form.
+- Do not keep stale product-specific filenames unless they exist in the current repository state.
 - Never output markdown or explanatory prose.`
 
 	type verifyItem struct {
@@ -138,15 +184,11 @@ Rules:
 		Interaction string   `json:"interaction"`
 	}
 	type verifyInput struct {
-		Branch      string       `json:"branch"`
-		Upstream    string       `json:"upstream,omitempty"`
+		repoStateSnapshot
 		Suggestions []verifyItem `json:"suggestions"`
 	}
 
-	in := verifyInput{
-		Branch:   state.LocalBranch.Name,
-		Upstream: state.LocalBranch.Upstream,
-	}
+	in := verifyInput{repoStateSnapshot: buildRepoStateSnapshot(state)}
 	for i, s := range suggestions {
 		in.Suggestions = append(in.Suggestions, verifyItem{
 			Index:       i,
@@ -308,6 +350,8 @@ func interactionLabel(m git.InteractionMode) string {
 		return "info"
 	case git.FileWrite:
 		return "file_write"
+	case git.PlatformExec:
+		return "platform_exec"
 	default:
 		return "auto"
 	}

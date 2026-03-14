@@ -66,6 +66,10 @@ func NewClient(baseURL, model string, contextLength ...int) *OllamaClient {
 	}
 }
 
+func (c *OllamaClient) Name() string {
+	return "ollama"
+}
+
 // SetContextLength updates the context length used for requests.
 func (c *OllamaClient) SetContextLength(n int) {
 	c.mu.Lock()
@@ -151,17 +155,21 @@ func (c *OllamaClient) IsAvailable(ctx context.Context) bool {
 	return true
 }
 
-// Generate sends a prompt to POST /api/generate and returns the full response.
+// Generate sends a prompt to POST /api/chat and returns the full response.
 func (c *OllamaClient) Generate(ctx context.Context, req llm.GenerateRequest) (*llm.GenerateResponse, error) {
 	ctx, cancel := withTimeoutIfMissing(ctx, generateTimeout)
 	defer cancel()
 
 	model := c.resolveModel(req)
-	body := OllamaGenerateRequest{
-		Model:  model,
-		System: req.System,
-		Prompt: req.Prompt,
-		Stream: false,
+	messages := []OllamaChatMessage{}
+	if system := strings.TrimSpace(req.System); system != "" {
+		messages = append(messages, OllamaChatMessage{Role: "system", Content: system})
+	}
+	messages = append(messages, OllamaChatMessage{Role: "user", Content: req.Prompt})
+	body := OllamaChatRequest{
+		Model:    model,
+		Messages: messages,
+		Stream:   false,
 		Options: &OllamaGenerateOptions{
 			NumGPU:      -1,
 			Temperature: req.Temperature,
@@ -172,35 +180,45 @@ func (c *OllamaClient) Generate(ctx context.Context, req llm.GenerateRequest) (*
 	if err != nil {
 		return nil, fmt.Errorf("ollama: marshal request: %w", err)
 	}
-	resp, err := c.doRequest(ctx, "POST", "/api/generate", bytes.NewReader(jsonBody))
+	resp, err := c.doRequest(ctx, "POST", "/api/chat", bytes.NewReader(jsonBody))
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("ollama: generate failed: status %d", resp.StatusCode)
+		return nil, fmt.Errorf("ollama: chat failed: status %d", resp.StatusCode)
 	}
-	var out OllamaGenerateResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	rawBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("ollama: read response: %w", err)
+	}
+	var out OllamaChatResponse
+	if err := json.Unmarshal(rawBody, &out); err != nil {
 		return nil, fmt.Errorf("ollama: decode response: %w", err)
 	}
 	c.recordSuccess()
 	return &llm.GenerateResponse{
-		Text:       out.Response,
+		Text:       out.Message.Content,
+		Thinking:   strings.TrimSpace(out.Message.Thinking),
+		Raw:        string(rawBody),
 		TokenCount: out.EvalCount,
 	}, nil
 }
 
-// GenerateStream sends a prompt to POST /api/generate with stream=true and yields chunks via channel.
+// GenerateStream sends a prompt to POST /api/chat with stream=true and yields chunks via channel.
 func (c *OllamaClient) GenerateStream(ctx context.Context, req llm.GenerateRequest) (<-chan llm.StreamChunk, error) {
 	ctx, cancel := withTimeoutIfMissing(ctx, generateTimeout)
 
 	model := c.resolveModel(req)
-	body := OllamaGenerateRequest{
-		Model:  model,
-		System: req.System,
-		Prompt: req.Prompt,
-		Stream: true,
+	messages := []OllamaChatMessage{}
+	if system := strings.TrimSpace(req.System); system != "" {
+		messages = append(messages, OllamaChatMessage{Role: "system", Content: system})
+	}
+	messages = append(messages, OllamaChatMessage{Role: "user", Content: req.Prompt})
+	body := OllamaChatRequest{
+		Model:    model,
+		Messages: messages,
+		Stream:   true,
 		Options: &OllamaGenerateOptions{
 			NumGPU:      -1,
 			Temperature: req.Temperature,
@@ -211,13 +229,13 @@ func (c *OllamaClient) GenerateStream(ctx context.Context, req llm.GenerateReque
 	if err != nil {
 		return nil, fmt.Errorf("ollama: marshal request: %w", err)
 	}
-	resp, err := c.doRequest(ctx, "POST", "/api/generate", bytes.NewReader(jsonBody))
+	resp, err := c.doRequest(ctx, "POST", "/api/chat", bytes.NewReader(jsonBody))
 	if err != nil {
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
-		return nil, fmt.Errorf("ollama: generate stream failed: status %d", resp.StatusCode)
+		return nil, fmt.Errorf("ollama: chat stream failed: status %d", resp.StatusCode)
 	}
 	ch := make(chan llm.StreamChunk, 16)
 	go func() {
@@ -230,12 +248,12 @@ func (c *OllamaClient) GenerateStream(ctx context.Context, req llm.GenerateReque
 			if len(line) == 0 {
 				continue
 			}
-			var chunk OllamaGenerateStreamChunk
+			var chunk OllamaChatStreamChunk
 			if err := json.Unmarshal(line, &chunk); err != nil {
 				continue
 			}
 			select {
-			case ch <- llm.StreamChunk{Text: chunk.Response, Done: chunk.Done}:
+			case ch <- llm.StreamChunk{Text: chunk.Message.Content, Thinking: chunk.Message.Thinking, Done: chunk.Done}:
 			case <-ctx.Done():
 				return
 			}
@@ -273,6 +291,7 @@ func (c *OllamaClient) ModelInfo(ctx context.Context) (*llm.ModelInfo, error) {
 	c.recordSuccess()
 	return &llm.ModelInfo{
 		Name:      c.model,
+		Provider:  c.Name(),
 		Size:      0,
 		Family:    out.Details.Family,
 		ParamSize: out.Details.ParameterSize,
@@ -302,6 +321,7 @@ func (c *OllamaClient) ListModels(ctx context.Context) ([]llm.ModelInfo, error) 
 	for _, m := range out.Models {
 		models = append(models, llm.ModelInfo{
 			Name:      m.Name,
+			Provider:  c.Name(),
 			Size:      m.Size,
 			Family:    m.Details.Family,
 			ParamSize: m.Details.ParameterSize,

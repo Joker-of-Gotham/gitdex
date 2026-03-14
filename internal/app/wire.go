@@ -9,7 +9,8 @@ import (
 	gitcli "github.com/Joker-of-Gotham/gitdex/internal/git/cli"
 	"github.com/Joker-of-Gotham/gitdex/internal/git/status"
 	"github.com/Joker-of-Gotham/gitdex/internal/i18n"
-	"github.com/Joker-of-Gotham/gitdex/internal/llm/ollama"
+	"github.com/Joker-of-Gotham/gitdex/internal/llm"
+	"github.com/Joker-of-Gotham/gitdex/internal/llmfactory"
 	"github.com/Joker-of-Gotham/gitdex/internal/platform"
 )
 
@@ -18,7 +19,7 @@ type Dependencies struct {
 	GitCLI        *gitcli.CLIExecutor
 	StatusWatcher *status.StatusWatcher
 	Pipeline      *engine.Pipeline
-	LLMProvider   *ollama.OllamaClient
+	LLMProvider   llm.LLMProvider
 }
 
 func Wire(cfg *config.Config) (*Dependencies, error) {
@@ -34,20 +35,13 @@ func Wire(cfg *config.Config) (*Dependencies, error) {
 	watcher := status.NewStatusWatcher(git)
 	watcher.SetAutoFetchInterval(time.Duration(cfg.Sync.AutoFetchInterval) * time.Second)
 
-	var llmProvider *ollama.OllamaClient
-	if cfg.LLM.Provider == "ollama" {
-		model := cfg.LLM.Primary.Model
-		if model == "" {
-			model = cfg.LLM.Model
-		}
-		llmProvider = ollama.NewClient(cfg.LLM.Endpoint, model, cfg.LLM.ContextLength)
-	}
+	llmProvider, effectiveLLM := llmfactory.Build(cfg.LLM)
 
 	pipeline := engine.NewPipeline(cfg.Suggestion.Mode)
 	if llmProvider != nil {
-		pipeline = engine.NewPipelineWithLLM(cfg.Suggestion.Mode, llmProvider, cfg.LLM)
+		pipeline = engine.NewPipelineWithLLM(cfg.Suggestion.Mode, llmProvider, effectiveLLM)
 	}
-	if cfg.LLM.ContextLength == 0 {
+	if effectiveLLM.ContextLength == 0 {
 		pipeline.SetContextBudget(32768)
 	}
 	pipeline.SetPlatformCollector(platform.NewCollector(

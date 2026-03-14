@@ -2,6 +2,7 @@ package context
 
 import (
 	"embed"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -16,15 +17,25 @@ type KnowledgeBase struct {
 
 type Scenario struct {
 	ID       string         `yaml:"id"`
+	Summary  string         `yaml:"summary"`
 	Triggers map[string]any `yaml:"triggers"`
 	SOP      string         `yaml:"sop"`
 	Pitfalls string         `yaml:"pitfalls"`
-	Source   string         // filename source
+	Source   string
+}
+
+// KnowledgeCatalogEntry is a lightweight index entry for a scenario.
+type KnowledgeCatalogEntry struct {
+	ID       string   `json:"id"`
+	Source   string   `json:"source"`
+	Summary  string   `json:"summary"`
+	Triggers []string `json:"triggers"`
 }
 
 type knowledgeFile struct {
 	Scenarios []struct {
 		ID       string         `yaml:"id"`
+		Summary  string         `yaml:"summary"`
 		Triggers map[string]any `yaml:"triggers"`
 		SOP      string         `yaml:"sop"`
 		Pitfalls string         `yaml:"pitfalls"`
@@ -54,6 +65,7 @@ func LoadKnowledgeBase() *KnowledgeBase {
 		for _, s := range kf.Scenarios {
 			kb.Scenarios = append(kb.Scenarios, Scenario{
 				ID:       s.ID,
+				Summary:  s.Summary,
 				Triggers: s.Triggers,
 				SOP:      s.SOP,
 				Pitfalls: s.Pitfalls,
@@ -62,6 +74,32 @@ func LoadKnowledgeBase() *KnowledgeBase {
 		}
 	}
 	return kb
+}
+
+// Catalog returns a lightweight index of all scenarios for inclusion in the LLM prompt.
+func (kb *KnowledgeBase) Catalog() []KnowledgeCatalogEntry {
+	if kb == nil {
+		return nil
+	}
+	entries := make([]KnowledgeCatalogEntry, 0, len(kb.Scenarios))
+	for _, s := range kb.Scenarios {
+		triggerKeys := make([]string, 0, len(s.Triggers))
+		for k := range s.Triggers {
+			triggerKeys = append(triggerKeys, k)
+		}
+		sort.Strings(triggerKeys)
+		summary := strings.TrimSpace(s.Summary)
+		if summary == "" {
+			summary = strings.TrimSpace(s.ID)
+		}
+		entries = append(entries, KnowledgeCatalogEntry{
+			ID:       s.Source + "#" + s.ID,
+			Source:   s.Source,
+			Summary:  summary,
+			Triggers: triggerKeys,
+		})
+	}
+	return entries
 }
 
 // FormatScenario returns a readable text representation of a scenario.

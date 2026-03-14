@@ -10,15 +10,19 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/Joker-of-Gotham/gitdex/internal/config"
 	"github.com/Joker-of-Gotham/gitdex/internal/engine"
 	"github.com/Joker-of-Gotham/gitdex/internal/engine/executor"
 	"github.com/Joker-of-Gotham/gitdex/internal/git"
 	gitcli "github.com/Joker-of-Gotham/gitdex/internal/git/cli"
 	"github.com/Joker-of-Gotham/gitdex/internal/git/status"
+	"github.com/Joker-of-Gotham/gitdex/internal/i18n"
 	"github.com/Joker-of-Gotham/gitdex/internal/llm"
+	"github.com/Joker-of-Gotham/gitdex/internal/llm/ollama"
 	"github.com/Joker-of-Gotham/gitdex/internal/llm/prompt"
 	"github.com/Joker-of-Gotham/gitdex/internal/llm/response"
 	"github.com/Joker-of-Gotham/gitdex/internal/memory"
+	"github.com/Joker-of-Gotham/gitdex/internal/platform"
 	"github.com/Joker-of-Gotham/gitdex/internal/tui/oplog"
 )
 
@@ -28,10 +32,14 @@ const (
 	screenLoading screenMode = iota
 	screenLanguageSelect
 	screenModelSelect
+	screenProviderConfig
+	screenAutomationConfig
 	screenMain
 	screenInput // text input mode for NeedsInput suggestions
 	screenGoalInput
 	screenWorkflowSelect
+	screenPlatformEdit
+	screenFileEdit
 )
 
 type modelSelectPhase int
@@ -41,15 +49,49 @@ const (
 	selectSecondary
 )
 
+type modelSelectMode int
+
+const (
+	modelSelectProviders modelSelectMode = iota
+	modelSelectModels
+)
+
 const localFileMode = 0o600
 
 type StartupInfo struct {
 	GitVersion   string
 	GitAvailable bool
-	OllamaStatus string
+	AIStatus     string
 	SystemLang   string
 	FirstRun     bool
 }
+
+type scrollPane int
+
+const (
+	scrollPaneWorkspace scrollPane = iota
+	scrollPaneLog
+	scrollPaneAreas
+	scrollPaneObservability
+)
+
+type workspaceTab int
+
+const (
+	workspaceTabOverview workspaceTab = iota
+	workspaceTabSuggestions
+	workspaceTabResult
+	workspaceTabAnalysis
+)
+
+type providerField int
+
+const (
+	providerFieldProvider providerField = iota
+	providerFieldModel
+	providerFieldEndpoint
+	providerFieldAPIKey
+)
 
 type Model struct {
 	width       int
@@ -57,6 +99,11 @@ type Model struct {
 	ready       bool
 	screen      screenMode
 	startupInfo StartupInfo
+	llmConfig   config.LLMConfig
+	automation  config.AutomationConfig
+	platformCfg config.PlatformConfig
+	adapterCfg  config.AdapterConfig
+	reportsCfg  config.ReportsConfig
 
 	watcher     *status.StatusWatcher
 	pipeline    *engine.Pipeline
@@ -66,12 +113,23 @@ type Model struct {
 
 	// model selection
 	availModels       []llm.ModelInfo
+	availModelsSource string
 	modelCursor       int
 	modelSelectPhase  modelSelectPhase
+	modelSelectMode   modelSelectMode
+	modelListProvider string
 	selectedPrimary   string
 	selectedSecondary string
 	secondaryEnabled  bool
 	modelsFetched     bool
+	primaryProvider   string
+	secondaryProvider string
+	providerRole      modelSelectPhase
+	providerDraft     config.ModelConfig
+	providerField     providerField
+	providerCursorAt  int
+	providerStoredKey string
+	providerKeyDirty  bool
 
 	// language selection
 	languageCursor     int
@@ -109,31 +167,93 @@ type Model struct {
 	inputSuggRef  *git.Suggestion  // the suggestion being parameterized
 
 	// Goal input and workflow menu
-	goalInput      string
-	goalCursorAt   int
-	workflowCursor int
-	workflows      []workflowDefinition
+	goalInput       string
+	goalCursorAt    int
+	workflowCursor  int
+	workflowScroll  int
+	workflows       []workflowDefinition
+	composerInput   string
+	composerCursor  int
+	slashCursor     int
+	composerFocused bool
+	platformEdit    string
+	platformCursor  int
+	platformScroll  int
+	platformTitle   string
+	fileEditReq     *git.FileWriteInfo
+	fileEdit        string
+	fileCursor      int
+	fileScroll      int
+	fileTitle       string
 
 	// Session memory
 	session         SessionContext
 	analysisHistory []string
 	memoryStore     *memory.Store
+	workflowPlan    *prompt.WorkflowOrchestration
+	workflowFlow    *workflowFlowState
 
 	// Plan rendering
 	llmPlanOverview string
 	llmGoalStatus   string
 
 	// Diagnostics (shown in analysis panel for transparency)
-	llmDebugInfo  string
-	analysisTrace engine.AnalysisTrace
-	lastCommand   commandTrace
-	obsTab        observabilityTab
-	workflowStage workflowStage
-	workflowAt    time.Time
+	llmDebugInfo            string
+	analysisTrace           engine.AnalysisTrace
+	lastCommand             commandTrace
+	lastPlatformOp          *git.PlatformExecInfo
+	lastPlatform            *platformActionState
+	mutationLedger          []platform.MutationLedgerEntry
+	obsTab                  observabilityTab
+	workflowStage           workflowStage
+	workflowAt              time.Time
+	leftScroll              int
+	areasScroll             int
+	obsScroll               int
+	scrollFocus             scrollPane
+	autoSteps                  int
+	consecutiveAnalysisFailures  int
+	consecutiveEmptySuggestions int
+	scheduleLastRun         map[string]time.Time
+	automationLocks         map[string]string
+	automationFailures      map[string]int
+	automationObserveOnly   bool
+	automationDraft         config.AutomationConfig
+	automationField         automationField
+	lastEscalation          time.Time
+	lastRecovery            time.Time
+	lastAnalysisFingerprint string
+	cachedPlatformID        platform.Platform
+	loadedCheckpointRepo    string
+	pendingCheckpointGoal   string
+	pendingCheckpointWf     *prompt.WorkflowOrchestration
+	pendingCheckpointFlow   *workflowFlowState
+	lastCheckpointHash      string
+	lastReportExportHash    string
+	lastReportExportAt      time.Time
+	commandResponseTitle    string
+	commandResponseBody     string
+	workspaceTab            workspaceTab
+	batchRunRequested       bool
+	resolveAdminBundle      adminBundleResolver
+	renderCache             *renderCache
 }
 
 func NewModel() Model {
-	return Model{
+	state := loadAutomationCheckpoint()
+	lastRuns := state.ScheduleLastRun
+	if lastRuns == nil {
+		lastRuns = map[string]time.Time{}
+	}
+	locks := state.AutomationLocks
+	if locks == nil {
+		locks = map[string]string{}
+	}
+	failures := state.AutomationFailures
+	if failures == nil {
+		failures = map[string]int{}
+	}
+	m := Model{
 		mode:             "zen",
 		screen:           screenLoading,
 		opLog:            oplog.New(oplog.DefaultMaxEntries),
@@ -144,14 +264,227 @@ func NewModel() Model {
 		session: SessionContext{
 			Preferences: make(map[string]string),
 		},
-		memoryStore: memory.NewStore(),
-		obsTab:      observabilityWorkflow,
+		memoryStore:             memory.NewStore(),
+		pendingCheckpointGoal:   strings.TrimSpace(state.ActiveGoal),
+		pendingCheckpointWf:     state.Workflow,
+		pendingCheckpointFlow:   state.Flow,
+		mutationLedger:          append([]platform.MutationLedgerEntry(nil), state.Ledger...),
+		obsTab:                observabilityWorkflow,
+		scrollFocus:           scrollPaneWorkspace,
+		scheduleLastRun:       lastRuns,
+		automationLocks:       locks,
+		automationFailures:    failures,
+		automationObserveOnly: state.ObserveOnly,
+		lastEscalation:        state.EscalatedAt,
+		lastRecovery:          state.RecoveredAt,
+		workspaceTab:          workspaceTabOverview,
+		loadedCheckpointRepo:  strings.TrimSpace(state.RepoFingerprint),
+		renderCache:           newRenderCache(),
 	}
+	return m.syncSessionLanguagePreference()
 }
 
 func (m Model) SetStartupInfo(info StartupInfo) Model {
 	m.startupInfo = info
 	return m
+}
+
+func (m Model) SetLLMConfig(cfg config.LLMConfig) Model {
+	m.llmConfig = cfg
+	primary := cfg.PrimaryRole()
+	secondary := cfg.SecondaryRole()
+	m.primaryProvider = config.RoleProvider(primary)
+	m.secondaryProvider = config.RoleProvider(secondary)
+	m.selectedPrimary = strings.TrimSpace(primary.Model)
+	if cfg.Secondary.Enabled {
+		m.selectedSecondary = strings.TrimSpace(secondary.Model)
+	}
+	m.secondaryEnabled = cfg.Secondary.Enabled && strings.TrimSpace(secondary.Model) != ""
+	return m
+}
+
+func (m Model) SetAutomationConfig(cfg config.AutomationConfig) Model {
+	config.ApplyAutomationMode(&cfg)
+	m.automation = cfg
+	return m
+}
+
+func (m Model) SetPlatformConfig(cfg config.PlatformConfig) Model {
+	m.platformCfg = cfg
+	return m
+}
+
+func (m Model) SetAdapterConfig(cfg config.AdapterConfig) Model {
+	m.adapterCfg = cfg
+	return m
+}
+
+func (m Model) SetReportsConfig(cfg config.ReportsConfig) Model {
+	m.reportsCfg = cfg
+	return m
+}
+
+func (m Model) openModelSetup(role modelSelectPhase) Model {
+	m.modelSelectPhase = role
+	m.modelSelectMode = modelSelectProviders
+	m.modelListProvider = ""
+	m.modelCursor = providerOptionIndex(m.roleProvider(role))
+	m.screen = screenModelSelect
+	m.statusMsg = i18n.T("model_select.opened")
+	return m
+}
+
+func (m Model) openLocalModelSelection(role modelSelectPhase, provider string) Model {
+	m.modelSelectPhase = role
+	m.modelSelectMode = modelSelectModels
+	if strings.TrimSpace(provider) == "" {
+		provider = m.roleProvider(role)
+	}
+	if strings.TrimSpace(provider) == "" {
+		provider = "ollama"
+	}
+	m.modelListProvider = provider
+	target := m.roleModel(role)
+	m.modelCursor = 0
+	for i, model := range m.currentSelectableModels() {
+		if strings.TrimSpace(model.Name) == target {
+			m.modelCursor = i
+			break
+		}
+	}
+	m.screen = screenModelSelect
+	return m
+}
+
+func (m Model) modelsForProvider(provider string) []llm.ModelInfo {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" {
+		return append([]llm.ModelInfo(nil), m.availModels...)
+	}
+	out := make([]llm.ModelInfo, 0, len(m.availModels))
+	for _, model := range m.availModels {
+		if strings.EqualFold(strings.TrimSpace(model.Provider), provider) {
+			out = append(out, model)
+		}
+	}
+	if len(out) > 0 {
+		return out
+	}
+	if strings.EqualFold(m.availModelsSource, provider) {
+		return append([]llm.ModelInfo(nil), m.availModels...)
+	}
+	return nil
+}
+
+func (m Model) currentSelectableModels() []llm.ModelInfo {
+	provider := strings.TrimSpace(m.modelListProvider)
+	if provider == "" {
+		provider = m.roleProvider(m.modelSelectPhase)
+	}
+	models := m.modelsForProvider(provider)
+	if len(models) > 0 {
+		return models
+	}
+	if strings.TrimSpace(provider) != "" {
+		return nil
+	}
+	return append([]llm.ModelInfo(nil), m.availModels...)
+}
+
+func (m Model) hasModelsForProvider(provider string) bool {
+	return len(m.modelsForProvider(provider)) > 0
+}
+
+func (m Model) persistRoleModelSelection(role modelSelectPhase, provider, model string) (Model, error) {
+	next := config.Get()
+	if next == nil {
+		next = config.DefaultConfig()
+	}
+	cfg := *next
+
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" {
+		provider = "ollama"
+	}
+	model = strings.TrimSpace(model)
+	spec := llm.ProviderSpecFor(provider)
+
+	if role == selectSecondary {
+		roleCfg := cfg.LLM.SecondaryRole()
+		roleCfg.Provider = provider
+		roleCfg.Model = model
+		roleCfg.Enabled = model != ""
+		if strings.TrimSpace(roleCfg.Endpoint) == "" || config.RoleProvider(roleCfg) != provider {
+			roleCfg.Endpoint = spec.DefaultBaseURL
+		}
+		if provider == "ollama" {
+			roleCfg.APIKey = ""
+			roleCfg.APIKeyEnv = ""
+		} else if strings.TrimSpace(roleCfg.APIKeyEnv) == "" {
+			roleCfg.APIKeyEnv = spec.APIKeyEnv
+		}
+		cfg.LLM.Secondary = roleCfg
+	} else {
+		roleCfg := cfg.LLM.PrimaryRole()
+		roleCfg.Provider = provider
+		roleCfg.Model = model
+		roleCfg.Enabled = model != ""
+		if strings.TrimSpace(roleCfg.Endpoint) == "" || config.RoleProvider(roleCfg) != provider {
+			roleCfg.Endpoint = spec.DefaultBaseURL
+		}
+		if provider == "ollama" {
+			roleCfg.APIKey = ""
+			roleCfg.APIKeyEnv = ""
+		} else if strings.TrimSpace(roleCfg.APIKeyEnv) == "" {
+			roleCfg.APIKeyEnv = spec.APIKeyEnv
+		}
+		cfg.LLM.Provider = provider
+		cfg.LLM.Model = model
+		cfg.LLM.Endpoint = roleCfg.Endpoint
+		cfg.LLM.APIKey = roleCfg.APIKey
+		cfg.LLM.APIKeyEnv = roleCfg.APIKeyEnv
+		cfg.LLM.Primary = roleCfg
+	}
+
+	if err := config.SaveGlobal(&cfg); err != nil {
+		return m, err
+	}
+
+	config.Set(&cfg)
+	m = m.applyLLMConfigRuntime(cfg.LLM)
+	return m, nil
+}
+
+func (m Model) roleProvider(role modelSelectPhase) string {
+	if role == selectSecondary && strings.TrimSpace(m.secondaryProvider) != "" {
+		return m.secondaryProvider
+	}
+	if strings.TrimSpace(m.primaryProvider) != "" {
+		return m.primaryProvider
+	}
+	return "ollama"
+}
+
+func (m Model) roleModel(role modelSelectPhase) string {
+	if role == selectSecondary {
+		return strings.TrimSpace(m.selectedSecondary)
+	}
+	return strings.TrimSpace(m.selectedPrimary)
+}
+
+func (m Model) selectedProviderID() string {
+	options := providerOptions()
+	if len(options) == 0 {
+		return "ollama"
+	}
+	if m.modelCursor < 0 || m.modelCursor >= len(options) {
+		return m.roleProvider(m.modelSelectPhase)
+	}
+	return options[m.modelCursor]
+}
+
+func (m Model) selectedProviderSpec() llm.ProviderSpec {
+	return llm.ProviderSpecFor(m.selectedProviderID())
 }
 
 func (m Model) SetWatcher(w *status.StatusWatcher) Model {
@@ -182,9 +515,12 @@ type gitStateMsg struct {
 	skipAnalysis bool
 }
 type fileWriteResultMsg struct {
-	path       string
-	backupPath string
-	err        error
+	path          string
+	backupPath    string
+	operation     string
+	beforeContent string
+	afterContent  string
+	err           error
 }
 type llmResultMsg struct {
 	requestID    int
@@ -201,9 +537,15 @@ type commandResultMsg struct {
 	result *git.ExecutionResult
 	err    error
 }
-type ollamaModelsMsg struct {
-	models []llm.ModelInfo
-	err    error
+type providerModelsMsg struct {
+	models    []llm.ModelInfo
+	err       error
+	available bool
+}
+type setupProviderModelsMsg struct {
+	provider string
+	models   []llm.ModelInfo
+	err      error
 }
 type llmExplainMsg struct {
 	requestID int
@@ -211,28 +553,82 @@ type llmExplainMsg struct {
 	err       error
 }
 
-type ollamaCheckTickMsg struct{}
+type providerCheckTickMsg struct{}
+type automationTickMsg struct{}
+type autoRetryAnalysisMsg struct{}
+
+type paneScrollMsg struct {
+	pane  scrollPane
+	delta int
+}
+
+type paneFocusMsg struct {
+	pane scrollPane
+}
+
+type uiClickMsg struct {
+	action string
+	index  int
+}
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.refreshGitState, m.fetchOllamaModels)
+	cmds := []tea.Cmd{m.refreshGitState, m.fetchProviderModels}
+	if m.automation.Enabled && m.automation.MonitorInterval > 0 {
+		cmds = append(cmds, scheduleAutomationTick(time.Duration(m.automation.MonitorInterval)*time.Second))
+	}
+	return tea.Batch(cmds...)
 }
 
-func scheduleOllamaCheck() tea.Cmd {
+func scheduleProviderCheck() tea.Cmd {
 	return func() tea.Msg {
 		time.Sleep(15 * time.Second)
-		return ollamaCheckTickMsg{}
+		return providerCheckTickMsg{}
 	}
 }
 
-func (m Model) fetchOllamaModels() tea.Msg {
+func scheduleAutomationTick(interval time.Duration) tea.Cmd {
+	return func() tea.Msg {
+		if interval <= 0 {
+			interval = 300 * time.Second
+		}
+		time.Sleep(interval)
+		return automationTickMsg{}
+	}
+}
+
+func (m Model) fetchProviderModels() tea.Msg {
 	if m.llmProvider == nil {
-		return ollamaModelsMsg{}
+		return providerModelsMsg{}
 	}
 	if !m.llmProvider.IsAvailable(context.Background()) {
-		return ollamaModelsMsg{}
+		return providerModelsMsg{available: false}
 	}
 	models, err := m.llmProvider.ListModels(context.Background())
-	return ollamaModelsMsg{models: models, err: err}
+	return providerModelsMsg{models: models, err: err, available: true}
+}
+
+func (m Model) fetchSetupProviderModels(provider string) tea.Msg {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider != "ollama" {
+		return setupProviderModelsMsg{provider: provider}
+	}
+
+	endpoint := defaultProviderEndpoint(provider)
+	role := m.llmConfig.PrimaryRole()
+	if m.modelSelectPhase == selectSecondary {
+		role = m.llmConfig.SecondaryRole()
+	}
+	if config.RoleProvider(role) == provider && strings.TrimSpace(role.Endpoint) != "" {
+		endpoint = config.RoleEndpoint(role)
+	}
+
+	client := ollama.NewClient(endpoint, "")
+	if !client.IsAvailable(context.Background()) {
+		return setupProviderModelsMsg{provider: provider, err: fmt.Errorf("ollama is unavailable at %s", endpoint)}
+	}
+
+	models, err := client.ListModels(context.Background())
+	return setupProviderModelsMsg{provider: provider, models: models, err: err}
 }
 
 func (m Model) refreshGitState() tea.Msg {
@@ -265,10 +661,15 @@ func (m Model) executeFileOp(fo *git.FileWriteInfo) tea.Cmd {
 		}
 		var err error
 		var backupPath string
+		var beforeContent string
+		var afterContent string
 
 		absPath, pathErr := filepath.Abs(fo.Path)
 		if pathErr != nil {
 			return fileWriteResultMsg{path: fo.Path, err: pathErr}
+		}
+		if data, readErr := os.ReadFile(absPath); readErr == nil {
+			beforeContent = string(data)
 		}
 
 		switch op {
@@ -278,6 +679,7 @@ func (m Model) executeFileOp(fo *git.FileWriteInfo) tea.Cmd {
 				_ = os.MkdirAll(dir, 0o755)
 			}
 			err = os.WriteFile(absPath, []byte(fo.Content), localFileMode)
+			afterContent = fo.Content
 
 		case "update":
 			if fo.Backup {
@@ -287,6 +689,7 @@ func (m Model) executeFileOp(fo *git.FileWriteInfo) tea.Cmd {
 				}
 			}
 			err = os.WriteFile(absPath, []byte(fo.Content), localFileMode)
+			afterContent = fo.Content
 
 		case "append":
 			var existing []byte
@@ -299,6 +702,7 @@ func (m Model) executeFileOp(fo *git.FileWriteInfo) tea.Cmd {
 			}
 			newContent := append(existing, []byte(fo.Content)...)
 			err = os.WriteFile(absPath, newContent, localFileMode)
+			afterContent = string(newContent)
 
 		case "delete":
 			if fo.Backup {
@@ -308,12 +712,20 @@ func (m Model) executeFileOp(fo *git.FileWriteInfo) tea.Cmd {
 				}
 			}
 			err = os.Remove(absPath)
+			afterContent = ""
 
 		default:
 			err = fmt.Errorf("unknown file operation: %s", op)
 		}
 
-		return fileWriteResultMsg{path: absPath, backupPath: backupPath, err: err}
+		return fileWriteResultMsg{
+			path:          absPath,
+			backupPath:    backupPath,
+			operation:     op,
+			beforeContent: beforeContent,
+			afterContent:  afterContent,
+			err:           err,
+		}
 	}
 }
 
@@ -321,6 +733,7 @@ func (m Model) executeFileOp(fo *git.FileWriteInfo) tea.Cmd {
 func (m Model) runLLMAnalysis(requestID int, state *status.GitState) tea.Cmd {
 	recentOps := m.collectRecentOps()
 	session := m.session.ToPromptContext()
+	session.ActiveGoalStatus = m.currentGoalStatus()
 
 	var memCtx *prompt.MemoryContext
 	if m.memoryStore != nil && state != nil {
@@ -339,6 +752,7 @@ func (m Model) runLLMAnalysis(requestID int, state *status.GitState) tea.Cmd {
 
 	opts := engine.AnalyzeOptions{
 		Session:         &session,
+		Workflow:        m.workflowPlan,
 		AnalysisHistory: append([]string(nil), m.analysisHistory...),
 		Memory:          memCtx,
 	}
@@ -375,7 +789,7 @@ func (m Model) runLLMAnalysis(requestID int, state *status.GitState) tea.Cmd {
 }
 
 // collectRecentOps extracts the last few command results from the opLog
-// so the LLM knows what was already tried.
+// so the LLM knows what was already tried and what happened.
 func (m Model) collectRecentOps() []prompt.OperationRecord {
 	if m.opLog == nil {
 		return nil
@@ -392,6 +806,7 @@ func (m Model) collectRecentOps() []prompt.OperationRecord {
 					Type:    "executed",
 					Command: strings.TrimPrefix(summary, "Command succeeded: "),
 					Result:  "success",
+					Output:  truncateOutput(e.Detail, 300),
 				})
 			case strings.HasPrefix(summary, "File operation succeeded: "):
 				ops = append(ops, prompt.OperationRecord{
@@ -399,6 +814,19 @@ func (m Model) collectRecentOps() []prompt.OperationRecord {
 					Action:  "file_op:" + strings.TrimPrefix(summary, "File operation succeeded: "),
 					Command: "file_op " + strings.TrimPrefix(summary, "File operation succeeded: "),
 					Result:  "success",
+					Output:  truncateOutput(e.Detail, 200),
+				})
+			case strings.HasPrefix(summary, "Platform action succeeded: "):
+				action := strings.TrimPrefix(summary, "Platform action succeeded: ")
+				if identity := extractPlatformIdentity(e.Detail); identity != "" {
+					action = identity
+				}
+				ops = append(ops, prompt.OperationRecord{
+					Type:    "executed",
+					Action:  action,
+					Command: action,
+					Result:  "success",
+					Output:  truncateOutput(e.Detail, 200),
 				})
 			}
 		case oplog.EntryCmdFail:
@@ -408,14 +836,28 @@ func (m Model) collectRecentOps() []prompt.OperationRecord {
 				ops = append(ops, prompt.OperationRecord{
 					Type:    "executed",
 					Command: strings.TrimPrefix(summary, "Command failed: "),
-					Result:  "failed: " + e.Detail,
+					Result:  "failed",
+					Output:  truncateOutput(e.Detail, 300),
 				})
 			case strings.HasPrefix(summary, "File write failed: "):
 				ops = append(ops, prompt.OperationRecord{
 					Type:    "executed",
 					Action:  "file_op:" + strings.TrimPrefix(summary, "File write failed: "),
 					Command: "file_op " + strings.TrimPrefix(summary, "File write failed: "),
-					Result:  "failed: " + e.Detail,
+					Result:  "failed",
+					Output:  truncateOutput(e.Detail, 200),
+				})
+			case strings.HasPrefix(summary, "Platform action failed: "):
+				action := strings.TrimPrefix(summary, "Platform action failed: ")
+				if identity := extractPlatformIdentity(e.Detail); identity != "" {
+					action = identity
+				}
+				ops = append(ops, prompt.OperationRecord{
+					Type:    "executed",
+					Action:  action,
+					Command: action,
+					Result:  "failed",
+					Output:  truncateOutput(e.Detail, 200),
 				})
 			}
 		case oplog.EntryUserAction:
@@ -455,6 +897,17 @@ func (m Model) collectRecentOps() []prompt.OperationRecord {
 	return ops
 }
 
+func truncateOutput(s string, maxLen int) string {
+	s = strings.TrimSpace(s)
+	if s == "" || maxLen <= 0 {
+		return ""
+	}
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "…(truncated)"
+}
+
 func (m *Model) revalidatePendingSuggestions() {
 	if m.gitState == nil || len(m.suggestions) == 0 {
 		return
@@ -477,8 +930,11 @@ func (m *Model) revalidatePendingSuggestions() {
 
 func (m Model) executeCommand(args []string) tea.Cmd {
 	return func() tea.Msg {
-		if m.executor == nil || len(args) == 0 {
-			return commandResultMsg{err: nil}
+		if len(args) == 0 {
+			return commandResultMsg{err: fmt.Errorf("suggestion has no executable command")}
+		}
+		if m.executor == nil {
+			return commandResultMsg{err: fmt.Errorf("git executor unavailable")}
 		}
 		// If single-string command, use Execute which does shell-like parsing.
 		// If multi-token command, use ExecuteTokenized to preserve arg boundaries.
@@ -552,6 +1008,16 @@ func joinCmd(parts []string) string {
 	return strings.Join(quoted, " ")
 }
 
+func extractPlatformIdentity(detail string) string {
+	for _, line := range strings.Split(strings.ReplaceAll(detail, "\r\n", "\n"), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "identity=") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "identity="))
+		}
+	}
+	return ""
+}
+
 func (m Model) addLog(entry oplog.Entry) Model {
 	if m.opLog == nil {
 		m.opLog = oplog.New(oplog.DefaultMaxEntries)
@@ -580,4 +1046,83 @@ func (m Model) buildAnalysisStartDetail() string {
 		parts = append(parts, "goal:"+goal)
 	}
 	return strings.Join(parts, " | ")
+}
+
+func (m Model) recordAutomationTransitions(prev, next *status.GitState) Model {
+	if !m.automation.Enabled || prev == nil || next == nil {
+		return m
+	}
+
+	if prev.LocalBranch.Name != next.LocalBranch.Name {
+		m = m.addLog(oplog.Entry{
+			Type:    oplog.EntryStateRefresh,
+			Summary: fmt.Sprintf("Automation observed branch change: %s -> %s", prev.LocalBranch.Name, next.LocalBranch.Name),
+		})
+		m.rememberOperationEvent("automation:branch:" + prev.LocalBranch.Name + "->" + next.LocalBranch.Name)
+	}
+
+	prevAhead, prevBehind := branchDivergence(prev)
+	nextAhead, nextBehind := branchDivergence(next)
+	if prevAhead != nextAhead || prevBehind != nextBehind {
+		m = m.addLog(oplog.Entry{
+			Type:    oplog.EntryStateRefresh,
+			Summary: fmt.Sprintf("Automation observed sync delta: ahead %d->%d behind %d->%d", prevAhead, nextAhead, prevBehind, nextBehind),
+		})
+		m.rememberOperationEvent(fmt.Sprintf("automation:sync:ahead%d->%d:behind%d->%d", prevAhead, nextAhead, prevBehind, nextBehind))
+	}
+
+	if len(prev.WorkingTree) != len(next.WorkingTree) || len(prev.StagingArea) != len(next.StagingArea) {
+		m = m.addLog(oplog.Entry{
+			Type:    oplog.EntryStateRefresh,
+			Summary: fmt.Sprintf("Automation observed local delta: working %d->%d staged %d->%d", len(prev.WorkingTree), len(next.WorkingTree), len(prev.StagingArea), len(next.StagingArea)),
+		})
+		m.rememberOperationEvent(fmt.Sprintf("automation:local:working%d->%d:staged%d->%d", len(prev.WorkingTree), len(next.WorkingTree), len(prev.StagingArea), len(next.StagingArea)))
+	}
+
+	return m
+}
+
+func branchDivergence(state *status.GitState) (ahead, behind int) {
+	if state == nil {
+		return 0, 0
+	}
+	ahead = state.LocalBranch.Ahead
+	behind = state.LocalBranch.Behind
+	if state.UpstreamState != nil {
+		ahead = state.UpstreamState.Ahead
+		behind = state.UpstreamState.Behind
+	}
+	return ahead, behind
+}
+
+func (m Model) shouldOpenModelSelection(models []llm.ModelInfo) bool {
+	if m.primaryProvider != "ollama" {
+		return strings.TrimSpace(m.selectedPrimary) == ""
+	}
+	if strings.TrimSpace(m.selectedPrimary) == "" {
+		return true
+	}
+	for _, model := range models {
+		if strings.TrimSpace(model.Name) == strings.TrimSpace(m.selectedPrimary) {
+			return false
+		}
+	}
+	return true
+}
+
+func (m Model) describeScrollFocus() string {
+	switch m.scrollFocus {
+	case scrollPaneLog:
+		return "Scroll focus: Operation Log"
+	case scrollPaneAreas:
+		return "Scroll focus: Git Areas"
+	case scrollPaneObservability:
+		return "Scroll focus: Observability"
+	default:
+		return "Scroll focus: Main workspace"
+	}
+}
+
+func (m Model) shouldAutoRefresh() bool {
+	return m.shouldAutoAnalyzeOnTick()
 }

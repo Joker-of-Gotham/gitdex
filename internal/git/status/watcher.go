@@ -2,6 +2,7 @@ package status
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"os"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/Joker-of-Gotham/gitdex/internal/git"
 	"github.com/Joker-of-Gotham/gitdex/internal/git/cli"
+	"github.com/Joker-of-Gotham/gitdex/internal/git/parser"
 )
 
 // StatusWatcher runs git status and returns parsed GitState.
@@ -60,10 +62,20 @@ func (w *StatusWatcher) GetStatus(ctx context.Context) (*GitState, error) {
 	w.enrichLastFetchTime(ctx, state)
 	w.maybeAutoFetch(state)
 	state.HasGitIgnore = fileExists(".gitignore")
+	state.HasGitAttributes = fileExists(".gitattributes")
+
+	w.enrichSubmodules(ctx, state)
+	w.enrichReflog(ctx, state)
+	w.enrichDescribe(ctx, state)
+	w.enrichWorktrees(ctx, state)
 
 	enrichFileInspection(ctx, w.cli, state)
 	enrichCommitSummary(ctx, w.cli, state)
 	enrichConfigState(ctx, w.cli, state)
+
+	if state.ConfigInfo != nil {
+		state.RepoConfig.DefaultBranch = state.ConfigInfo.DefaultBranch
+	}
 
 	return state, nil
 }
@@ -217,6 +229,80 @@ func (w *StatusWatcher) enrichBranches(ctx context.Context, state *GitState) {
 			state.LocalBranches = append(state.LocalBranches, line)
 		}
 	}
+
+	w.enrichBranchDetails(ctx, state)
+	w.enrichMergedBranches(ctx, state)
+}
+
+func (w *StatusWatcher) enrichBranchDetails(ctx context.Context, state *GitState) {
+	const detailFmt = "%(refname:short)\t%(upstream:short)\t%(upstream:track,nobracket)\t%(objectname:short) %(contents:subject)"
+	stdout, _, err := w.cli.Exec(ctx, "for-each-ref", "--format="+detailFmt, "refs/heads/")
+	if err != nil {
+		return
+	}
+	currentBranch := state.LocalBranch.Name
+	for _, line := range splitLines(stdout) {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 4)
+		if len(parts) < 4 {
+			continue
+		}
+		name := strings.TrimSpace(parts[0])
+		upstream := strings.TrimSpace(parts[1])
+		trackInfo := strings.TrimSpace(parts[2])
+		lastCommit := strings.TrimSpace(parts[3])
+
+		detail := BranchDetail{
+			Name:       name,
+			Upstream:   upstream,
+			LastCommit: lastCommit,
+			IsCurrent:  name == currentBranch,
+		}
+		detail.Ahead, detail.Behind = parseTrackCounts(trackInfo)
+		state.BranchDetails = append(state.BranchDetails, detail)
+	}
+}
+
+func (w *StatusWatcher) enrichMergedBranches(ctx context.Context, state *GitState) {
+	stdout, _, err := w.cli.Exec(ctx, "branch", "--merged", "HEAD", "--format=%(refname:short)")
+	if err != nil {
+		return
+	}
+	currentBranch := state.LocalBranch.Name
+	for _, line := range splitLines(stdout) {
+		line = strings.TrimSpace(line)
+		if line == "" || line == currentBranch {
+			continue
+		}
+		state.MergedBranches = append(state.MergedBranches, line)
+	}
+	for i := range state.BranchDetails {
+		for _, merged := range state.MergedBranches {
+			if state.BranchDetails[i].Name == merged {
+				state.BranchDetails[i].IsMerged = true
+				break
+			}
+		}
+	}
+}
+
+func parseTrackCounts(track string) (ahead, behind int) {
+	track = strings.TrimSpace(track)
+	if track == "" || track == "gone" {
+		return 0, 0
+	}
+	for _, part := range strings.Split(track, ",") {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, "ahead ") {
+			fmt.Sscanf(part, "ahead %d", &ahead)
+		} else if strings.HasPrefix(part, "behind ") {
+			fmt.Sscanf(part, "behind %d", &behind)
+		}
+	}
+	return
 }
 
 func (w *StatusWatcher) enrichStash(ctx context.Context, state *GitState) {
@@ -294,6 +380,58 @@ func (w *StatusWatcher) GetStashCount(ctx context.Context) (int, error) {
 		}
 	}
 	return count, nil
+}
+
+func (w *StatusWatcher) enrichSubmodules(ctx context.Context, state *GitState) {
+	stdout, _, err := w.cli.Exec(ctx, "submodule", "status")
+	if err != nil || strings.TrimSpace(stdout) == "" {
+		return
+	}
+	state.Submodules = parser.ParseSubmodules(stdout)
+}
+
+func (w *StatusWatcher) enrichReflog(ctx context.Context, state *GitState) {
+	if state.IsInitial {
+		return
+	}
+	stdout, _, err := w.cli.Exec(ctx, "reflog", "--no-decorate", "-n", "15", "--format=%gd %gs")
+	if err != nil {
+		return
+	}
+	for _, line := range splitLines(stdout) {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			state.RecentReflog = append(state.RecentReflog, line)
+		}
+	}
+}
+
+func (w *StatusWatcher) enrichDescribe(ctx context.Context, state *GitState) {
+	if state.IsInitial {
+		return
+	}
+	stdout, _, err := w.cli.Exec(ctx, "describe", "--tags", "--always", "--long")
+	if err != nil {
+		return
+	}
+	state.DescribeTag = strings.TrimSpace(stdout)
+}
+
+func (w *StatusWatcher) enrichWorktrees(ctx context.Context, state *GitState) {
+	stdout, _, err := w.cli.Exec(ctx, "worktree", "list", "--porcelain")
+	if err != nil {
+		return
+	}
+	var entries []string
+	for _, line := range splitLines(stdout) {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "worktree ") {
+			entries = append(entries, strings.TrimPrefix(line, "worktree "))
+		}
+	}
+	if len(entries) > 1 {
+		state.Worktrees = entries
+	}
 }
 
 func splitLines(s string) []string {

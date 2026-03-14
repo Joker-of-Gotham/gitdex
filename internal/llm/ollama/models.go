@@ -14,31 +14,36 @@ type OllamaGenerateOptions struct {
 	NumCtx      int     `json:"num_ctx,omitempty"`
 }
 
-// OllamaGenerateRequest is the request body for POST /api/generate
-type OllamaGenerateRequest struct {
-	Model   string                 `json:"model"`
-	System  string                 `json:"system,omitempty"`
-	Prompt  string                 `json:"prompt"`
-	Stream  bool                   `json:"stream,omitempty"`
-	Options *OllamaGenerateOptions `json:"options,omitempty"`
+type OllamaChatMessage struct {
+	Role     string `json:"role"`
+	Content  string `json:"content,omitempty"`
+	Thinking string `json:"thinking,omitempty"`
 }
 
-// OllamaGenerateResponse is the non-streaming response from POST /api/generate
-type OllamaGenerateResponse struct {
-	Model     string `json:"model"`
-	Response  string `json:"response"`
-	Done      bool   `json:"done"`
-	CreatedAt string `json:"created_at,omitempty"`
-	EvalCount int    `json:"eval_count,omitempty"`
+// OllamaChatRequest is the request body for POST /api/chat.
+type OllamaChatRequest struct {
+	Model    string                 `json:"model"`
+	Messages []OllamaChatMessage    `json:"messages"`
+	Stream   bool                   `json:"stream,omitempty"`
+	Options  *OllamaGenerateOptions `json:"options,omitempty"`
 }
 
-// OllamaGenerateStreamChunk is a chunk from streaming POST /api/generate
-type OllamaGenerateStreamChunk struct {
-	Model     string `json:"model"`
-	Response  string `json:"response"`
-	Done      bool   `json:"done"`
-	CreatedAt string `json:"created_at,omitempty"`
-	EvalCount int    `json:"eval_count,omitempty"`
+// OllamaChatResponse is the non-streaming response from POST /api/chat.
+type OllamaChatResponse struct {
+	Model     string            `json:"model"`
+	Message   OllamaChatMessage `json:"message"`
+	Done      bool              `json:"done"`
+	CreatedAt string            `json:"created_at,omitempty"`
+	EvalCount int               `json:"eval_count,omitempty"`
+}
+
+// OllamaChatStreamChunk is a chunk from streaming POST /api/chat.
+type OllamaChatStreamChunk struct {
+	Model     string            `json:"model"`
+	Message   OllamaChatMessage `json:"message"`
+	Done      bool              `json:"done"`
+	CreatedAt string            `json:"created_at,omitempty"`
+	EvalCount int               `json:"eval_count,omitempty"`
 }
 
 // OllamaShowRequest is the request body for POST /api/show

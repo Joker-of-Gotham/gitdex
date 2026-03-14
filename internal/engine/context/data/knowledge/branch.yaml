@@ -1,5 +1,6 @@
 scenarios:
   - id: conflict_resolution
+    summary: "合并冲突时的闭环处理流程（status → 解决 → add → continue/abort）"
     triggers:
       merge_in_progress: true
     sop: |
@@ -14,6 +15,7 @@ scenarios:
       - merge --abort 只在合并过程中有效
 
   - id: rebase_conflict_resolution
+    summary: "变基冲突处理流程（continue/skip/abort 选择与注意事项）"
     triggers:
       rebase_in_progress: true
     sop: |
@@ -28,6 +30,7 @@ scenarios:
       - skip 会丢弃当前提交的改动
 
   - id: merge_vs_rebase_decision
+    summary: "merge vs rebase 决策规则：公共/私有分支、已推送/未推送的选择"
     triggers:
       has_upstream: true
       behind_gt: 0
@@ -45,6 +48,7 @@ scenarios:
       - rebase 后需要 force push（只对私有分支安全）
 
   - id: cherry_pick_in_progress
+    summary: "Cherry-pick 进行中的处理（continue/abort）与重复提交风险"
     triggers:
       cherry_in_progress: true
     sop: |

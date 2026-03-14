@@ -30,8 +30,88 @@ func TestLoad_WithDefaults(t *testing.T) {
 	assert.False(t, loaded.LLM.Secondary.Enabled)
 	assert.Equal(t, "http://localhost:11434", loaded.LLM.Endpoint)
 	assert.Equal(t, 300, loaded.Sync.AutoFetchInterval)
+	assert.True(t, loaded.Automation.Enabled)
+	assert.Equal(t, 300, loaded.Automation.MonitorInterval)
+	assert.Equal(t, 8, loaded.Automation.MaxAutoSteps)
+	assert.Empty(t, loaded.Automation.Schedules)
+	assert.True(t, loaded.Automation.ApprovalPolicy.RequireForPartial)
+	assert.True(t, loaded.Automation.ApprovalPolicy.RequireForComposed)
+	assert.True(t, loaded.Automation.Concurrency.Enabled)
+	assert.Equal(t, 3, loaded.Automation.Escalation.FailureThreshold)
+	assert.Equal(t, 2, loaded.Automation.DeadLetter.PauseAfter)
+	assert.True(t, loaded.Adapters.GitHub.GH.Enabled)
+	assert.Equal(t, "gh", loaded.Adapters.GitHub.GH.Binary)
+	assert.Equal(t, "default", loaded.Adapters.GitHub.Browser.Driver)
+	assert.Equal(t, "default", loaded.Adapters.GitLab.Browser.Driver)
+	assert.Equal(t, "default", loaded.Adapters.Bitbucket.Browser.Driver)
 	assert.Equal(t, "dark", loaded.Theme.Name)
 	assert.Equal(t, "auto", loaded.I18n.Language)
+}
+
+func TestLoad_ProjectBrowserAdapterConfig(t *testing.T) {
+	configureConfigEnv(t)
+
+	workDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, ProjectConfigName), []byte(`
+adapters:
+  gitlab:
+    browser:
+      enabled: true
+      driver: "playwright"
+  bitbucket:
+    browser:
+      enabled: true
+      driver: "selenium"
+`), 0o600))
+
+	oldWd, _ := os.Getwd()
+	require.NoError(t, os.Chdir(workDir))
+	defer func() { _ = os.Chdir(oldWd) }()
+
+	loaded, err := Load()
+	require.NoError(t, err)
+	assert.True(t, loaded.Adapters.GitLab.Browser.Enabled)
+	assert.Equal(t, "playwright", loaded.Adapters.GitLab.Browser.Driver)
+	assert.True(t, loaded.Adapters.Bitbucket.Browser.Enabled)
+	assert.Equal(t, "selenium", loaded.Adapters.Bitbucket.Browser.Driver)
+}
+
+func TestLoad_ProjectAutomationSchedules(t *testing.T) {
+	configureConfigEnv(t)
+
+	workDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, ProjectConfigName), []byte(`
+automation:
+  schedules:
+    - id: "advanced-security-hourly"
+      enabled: true
+      workflow_id: "advanced_security"
+      interval: 3600
+`), 0o600))
+
+	oldWd, _ := os.Getwd()
+	require.NoError(t, os.Chdir(workDir))
+	defer func() { _ = os.Chdir(oldWd) }()
+
+	loaded, err := Load()
+	require.NoError(t, err)
+	require.Len(t, loaded.Automation.Schedules, 1)
+	assert.Equal(t, "advanced-security-hourly", loaded.Automation.Schedules[0].ID)
+	assert.Equal(t, "advanced_security", loaded.Automation.Schedules[0].WorkflowID)
+	assert.Equal(t, 3600, loaded.Automation.Schedules[0].Interval)
+}
+
+func TestValidate_MaintenanceWindowRequiresValidTimeAndDay(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Automation.MaintenanceWindows = []AutomationMaintenanceWindow{{
+		Days:  []string{"mon", "friyay"},
+		Start: "09:00",
+		End:   "18:00",
+	}}
+
+	err := Validate(cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid day")
 }
 
 func TestLoad_GlobalConfig(t *testing.T) {
@@ -162,6 +242,77 @@ func TestSaveGlobal_PersistsLanguage(t *testing.T) {
 	assert.Contains(t, string(data), "language: zh")
 }
 
+func TestSaveGlobal_PersistsAPIKeysAndReloads(t *testing.T) {
+	configureConfigEnv(t)
+
+	cfg := DefaultConfig()
+	cfg.LLM.Provider = "openai"
+	cfg.LLM.Model = "gpt-4.1-mini"
+	cfg.LLM.Endpoint = "https://api.openai.com/v1"
+	cfg.LLM.APIKey = "sk-test-primary"
+	cfg.LLM.APIKeyEnv = ""
+	cfg.LLM.Primary.Provider = "openai"
+	cfg.LLM.Primary.Model = "gpt-4.1-mini"
+	cfg.LLM.Primary.Endpoint = "https://api.openai.com/v1"
+	cfg.LLM.Primary.APIKey = "sk-test-primary"
+	cfg.LLM.Primary.APIKeyEnv = ""
+	cfg.LLM.Secondary.Provider = "deepseek"
+	cfg.LLM.Secondary.Model = "deepseek-chat"
+	cfg.LLM.Secondary.Endpoint = "https://api.deepseek.com"
+	cfg.LLM.Secondary.APIKey = "sk-test-secondary"
+	cfg.LLM.Secondary.APIKeyEnv = ""
+	cfg.LLM.Secondary.Enabled = true
+
+	require.NoError(t, SaveGlobal(cfg))
+
+	workDir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	require.NoError(t, os.Chdir(workDir))
+	defer func() { _ = os.Chdir(oldWd) }()
+
+	loaded, err := Load()
+	require.NoError(t, err)
+
+	assert.Equal(t, "openai", loaded.LLM.Primary.Provider)
+	assert.Equal(t, "gpt-4.1-mini", loaded.LLM.Primary.Model)
+	assert.Equal(t, "sk-test-primary", loaded.LLM.Primary.APIKey)
+	assert.Equal(t, "deepseek", loaded.LLM.Secondary.Provider)
+	assert.Equal(t, "deepseek-chat", loaded.LLM.Secondary.Model)
+	assert.Equal(t, "sk-test-secondary", loaded.LLM.Secondary.APIKey)
+	assert.True(t, loaded.LLM.Secondary.Enabled)
+}
+
+func TestLoad_ProjectConfigDoesNotWipeSavedAPIKey(t *testing.T) {
+	configureConfigEnv(t)
+
+	cfg := DefaultConfig()
+	cfg.LLM.Provider = "openai"
+	cfg.LLM.Model = "gpt-4.1-mini"
+	cfg.LLM.APIKey = "sk-global"
+	cfg.LLM.APIKeyEnv = ""
+	cfg.LLM.Primary.Provider = "openai"
+	cfg.LLM.Primary.Model = "gpt-4.1-mini"
+	cfg.LLM.Primary.APIKey = "sk-global"
+	cfg.LLM.Primary.APIKeyEnv = ""
+	require.NoError(t, SaveGlobal(cfg))
+
+	workDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, ProjectConfigName), []byte(`
+suggestion:
+  mode: "full"
+`), 0o600))
+
+	oldWd, _ := os.Getwd()
+	require.NoError(t, os.Chdir(workDir))
+	defer func() { _ = os.Chdir(oldWd) }()
+
+	loaded, err := Load()
+	require.NoError(t, err)
+
+	assert.Equal(t, "full", loaded.Suggestion.Mode)
+	assert.Equal(t, "sk-global", loaded.LLM.Primary.APIKey)
+}
+
 func TestGet_BeforeLoad(t *testing.T) {
 	cfg = nil
 	assert.Nil(t, Get())
@@ -187,6 +338,48 @@ func TestValidate_InvalidTheme(t *testing.T) {
 	err := Validate(c)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "theme.name")
+}
+
+func TestValidate_AllowsCloudProviders(t *testing.T) {
+	c := DefaultConfig()
+	c.LLM.Provider = "openai"
+	c.LLM.Primary.Provider = "openai"
+	c.LLM.Primary.Model = "gpt-4.1-mini"
+	c.LLM.Primary.Endpoint = "https://api.openai.com/v1"
+	c.LLM.Secondary.Provider = "deepseek"
+	c.LLM.Secondary.Model = "deepseek-reasoner"
+	c.LLM.Secondary.Endpoint = "https://api.deepseek.com"
+	c.LLM.Secondary.Enabled = true
+
+	err := Validate(c)
+	assert.NoError(t, err)
+}
+
+func TestValidate_InvalidAutomation(t *testing.T) {
+	c := DefaultConfig()
+	c.Automation.MonitorInterval = -1
+	err := Validate(c)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "automation.monitor_interval")
+}
+
+func TestValidate_InvalidAdapterBinary(t *testing.T) {
+	c := DefaultConfig()
+	c.Adapters.GitHub.GH.Enabled = true
+	c.Adapters.GitHub.GH.Binary = ""
+	err := Validate(c)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "adapters.github.gh.binary")
+}
+
+func TestResolveRoleAPIKey_FromDefaultEnv(t *testing.T) {
+	t.Setenv("DEEPSEEK_API_KEY", "secret-key")
+
+	role := ModelConfig{
+		Provider: "deepseek",
+	}
+
+	assert.Equal(t, "secret-key", ResolveRoleAPIKey(role))
 }
 
 func configureConfigEnv(t *testing.T) {

@@ -1,45 +1,52 @@
 scenarios:
   - id: branch_cleanup
+    summary: "分支清理流程：列出已合并分支 → 安全删除 → fetch --prune 同步远程"
     triggers:
       branch_count_gt: 5
     sop: |
-      分支善后清理:
-      1. git branch --merged — 列出已合并的分支
-      2. git branch -d <branch> — 安全删除已合并分支
-      3. git remote prune origin — 清理已删除的远端分支本地引用
-      4. git fetch --prune — 同步远端分支状态
-    pitfalls:
-      - git branch -d 只能删除已合并分支
-      - 使用 -D 强制删除时确认分支确实不再需要
+      分支清理流程:
+      1. git branch --merged
+         列出已经合并到当前分支的本地分支。
+      2. git branch -d <branch>
+         安全删除已合并分支。
+      3. git fetch --prune
+         同步远端状态并清理本地失效的远端引用。
+      4. git remote prune <existing-remote>
+         只在明确知道远端名字存在时执行。
+    pitfalls: |
+      - 不要删除当前所在分支。
+      - 不要对已经不存在的远端名执行 git remote prune。
+      - 需要强制删除时先确认分支确实不再需要，再考虑 git branch -D。
 
   - id: interactive_rebase_cleanup
+    summary: "交互式 rebase 历史整理（pick/squash/fixup/reword/drop）"
     triggers:
       commit_count_gt: 3
     sop: |
-      历史整理 (rebase -i):
-      1. git rebase -i HEAD~N (N 为要整理的提交数)
-      2. 可用操作:
-         pick — 保留
-         squash — 合并到前一个提交
-         fixup — 合并但丢弃消息
-         reword — 修改提交消息
-         drop — 删除提交
-      3. 使用 --autosquash 自动处理 fixup!/squash! 前缀
-    pitfalls:
-      - 只对未推送的本地提交使用
-      - 已推送的提交 rebase 后需要 force push
-      - 操作前确保有备份分支
+      历史整理（交互式 rebase）:
+      1. git rebase -i HEAD~N
+      2. 常见操作:
+         - pick: 保留提交
+         - squash: 合并并编辑消息
+         - fixup: 合并并丢弃当前消息
+         - reword: 只改提交消息
+         - drop: 删除提交
+      3. 如果已有 fixup!/squash! 提交，可配合 --autosquash
+    pitfalls: |
+      - 只对未共享的本地历史做 rebase。
+      - 对已经推送过的公共分支改写历史前，必须确认团队协作影响。
 
   - id: branch_naming
+    summary: "分支命名规范：feature/fix/hotfix/release/chore 前缀模式"
     triggers:
       always: true
     sop: |
-      分支命名规范建议:
-      feature/<ticket>-<description>  新功能
-      fix/<ticket>-<description>      修复
-      hotfix/<description>            紧急修复
-      release/<version>               发布分支
-      chore/<description>             杂务
-    pitfalls:
-      - 避免空格和特殊字符
-      - 保持名称简洁但有意义
+      分支命名建议:
+      - feature/<ticket>-<summary>
+      - fix/<ticket>-<summary>
+      - hotfix/<summary>
+      - release/<version>
+      - chore/<summary>
+    pitfalls: |
+      - 创建前先确认本地是否已经有同名分支。
+      - 避免空格、中文空白符和含义不明的超短名称。

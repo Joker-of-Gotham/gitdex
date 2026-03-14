@@ -33,16 +33,21 @@ func (a *Application) Run() error {
 	theme.Init(cfg.Theme.Name)
 	theme.InitIcons()
 
-	checks := a.runStartupChecks()
+	checks := a.runStartupChecks(cfg)
 
 	model := tui.NewModel()
 	model = model.SetStartupInfo(tui.StartupInfo{
 		GitVersion:   checks.GitVersion,
 		GitAvailable: checks.GitAvailable,
-		OllamaStatus: checks.OllamaStatus,
+		AIStatus:     checks.AIStatus,
 		SystemLang:   checks.SystemLang,
 		FirstRun:     checks.FirstRun,
 	})
+	model = model.SetLLMConfig(cfg.LLM)
+	model = model.SetAutomationConfig(cfg.Automation)
+	model = model.SetPlatformConfig(cfg.Platform)
+	model = model.SetAdapterConfig(cfg.Adapters)
+	model = model.SetReportsConfig(cfg.Reports)
 
 	deps, err := Wire(cfg)
 	if err != nil {

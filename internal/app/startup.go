@@ -1,10 +1,12 @@
 package app
 
 import (
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/Joker-of-Gotham/gitdex/internal/config"
 )
@@ -13,16 +15,16 @@ import (
 type StartupInfo struct {
 	GitVersion   string // e.g. "2.43.0"
 	GitAvailable bool
-	OllamaStatus string // "running", "installed", "not_installed"
+	AIStatus     string
 	SystemLang   string // "zh", "en", "ja", etc.
 	FirstRun     bool
 }
 
-// runStartupChecks runs Git, Ollama, and language detection.
-func (a *Application) runStartupChecks() StartupInfo {
+// runStartupChecks runs Git, provider, and language detection.
+func (a *Application) runStartupChecks(cfg *config.Config) StartupInfo {
 	info := StartupInfo{FirstRun: isFirstRun()}
 	info.GitVersion, info.GitAvailable = checkGit()
-	info.OllamaStatus = checkOllama()
+	info.AIStatus = checkLLMEnvironment(cfg)
 	info.SystemLang = detectLanguage()
 	return info
 }
@@ -62,7 +64,12 @@ func checkGit() (version string, available bool) {
 
 func checkOllama() string {
 	// 1. Try HTTP - if reachable, Ollama is running
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{Timeout: 2 * time.Second}).DialContext,
+		},
+	}
 	resp, err := client.Get("http://localhost:11434/api/version")
 	if err == nil {
 		resp.Body.Close()
@@ -77,6 +84,40 @@ func checkOllama() string {
 	}
 
 	return "not_installed"
+}
+
+func checkLLMEnvironment(cfg *config.Config) string {
+	if cfg == nil {
+		return "disabled"
+	}
+	roleStatuses := make([]string, 0, 2)
+	seen := map[string]bool{}
+
+	roles := []config.ModelConfig{cfg.LLM.PrimaryRole()}
+	if cfg.LLM.Secondary.Enabled {
+		roles = append(roles, cfg.LLM.SecondaryRole())
+	}
+	for _, role := range roles {
+		provider := config.RoleProvider(role)
+		if seen[provider] {
+			continue
+		}
+		seen[provider] = true
+		switch provider {
+		case "openai", "deepseek":
+			if config.ResolveRoleAPIKey(role) == "" {
+				roleStatuses = append(roleStatuses, provider+": missing API key")
+			} else {
+				roleStatuses = append(roleStatuses, provider+": configured")
+			}
+		default:
+			roleStatuses = append(roleStatuses, "ollama:"+checkOllama())
+		}
+	}
+	if len(roleStatuses) == 0 {
+		return "disabled"
+	}
+	return strings.Join(roleStatuses, " | ")
 }
 
 func detectLanguage() string {

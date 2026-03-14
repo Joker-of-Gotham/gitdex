@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -75,6 +76,71 @@ func (m Model) languageCursorFor(code string) int {
 	return 0
 }
 
+func languageOptionByCode(code string) (languageOption, bool) {
+	code = strings.ToLower(strings.TrimSpace(code))
+	for _, option := range languageOptions() {
+		if option.Code == code {
+			return option, true
+		}
+	}
+	return languageOption{}, false
+}
+
+func (m Model) syncSessionLanguagePreference() Model {
+	if m.session.Preferences == nil {
+		m.session.Preferences = make(map[string]string)
+	}
+	lang := m.currentResolvedLanguage()
+	m.session.Preferences["language"] = lang
+	m.rememberPreference("language", lang)
+	return m
+}
+
+func localizedLanguageSwitchBody(label string) string {
+	return fmt.Sprintf(
+		localizedText(
+			"Language switched to %s.\nRun /refresh to regenerate analysis and suggestions in this language.",
+			"语言已切换为 %s。\n运行 /refresh 以用该语言重新生成分析和建议。",
+			"Language switched to %s.\nRun /refresh to regenerate analysis and suggestions in this language.",
+		),
+		label,
+	)
+}
+
+func (m Model) applyLanguagePreference(code string) (Model, error) {
+	option, ok := languageOptionByCode(code)
+	if !ok {
+		return m, fmt.Errorf("unsupported language %q", code)
+	}
+	if err := i18n.Init(option.Code); err != nil {
+		return m, err
+	}
+	if err := config.UpdateLanguagePreference(option.Code); err != nil {
+		return m, err
+	}
+	m.languageConfigured = true
+	m = m.syncSessionLanguagePreference()
+	m.renderCache = newRenderCache()
+
+	m.llmAnalysis = ""
+	m.llmThinking = ""
+	m.llmReason = ""
+	m.llmPlanOverview = ""
+	m.llmGoalStatus = ""
+	m.suggestions = nil
+	m.suggExecState = nil
+	m.suggExecMsg = nil
+	m.suggIdx = 0
+	m.expanded = false
+
+	m.setCommandResponse(localizedAssistantTitle(), localizedLanguageSwitchBody(option.Label))
+	m.statusMsg = fmt.Sprintf(
+		localizedText("Language switched: %s", "语言已切换：%s", "Language switched: %s"),
+		option.Label,
+	)
+	return m, nil
+}
+
 func (m Model) resumeAfterLanguageSelection() (tea.Model, tea.Cmd) {
 	m.languageConfigured = true
 	returnTo := m.languageReturnTo
@@ -93,7 +159,7 @@ func (m Model) resumeAfterLanguageSelection() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.screen = screenMain
-		return m, m.refreshGitState
+		return m, nil
 	}
 }
 
@@ -121,21 +187,17 @@ func (m Model) updateLanguageSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		choice := options[m.languageCursor]
-		if err := i18n.Init(choice.Code); err != nil {
+		next, err := m.applyLanguagePreference(choice.Code)
+		if err != nil {
 			m.statusMsg = i18n.T("language_select.failed")
 			return m, nil
 		}
-		if err := config.UpdateLanguagePreference(choice.Code); err != nil {
-			m.statusMsg = i18n.T("language_select.failed")
-			return m, nil
-		}
-		m.statusMsg = i18n.T("language_select.saved")
-		m = m.addLog(oplog.Entry{
+		next = next.addLog(oplog.Entry{
 			Type:    oplog.EntryUserAction,
 			Summary: "Language selected: " + choice.Code,
 			Detail:  choice.Label,
 		})
-		return m.resumeAfterLanguageSelection()
+		return next.resumeAfterLanguageSelection()
 	}
 	return m, nil
 }

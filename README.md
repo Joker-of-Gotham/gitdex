@@ -29,7 +29,7 @@
   <p>
     <img alt="topic git" src="https://img.shields.io/badge/git-workflow-173B63?style=flat-square" />
     <img alt="topic tui" src="https://img.shields.io/badge/terminal-ui-10304F?style=flat-square" />
-    <img alt="topic ollama" src="https://img.shields.io/badge/ollama-local--first-F2B15A?style=flat-square&labelColor=6F4611" />
+    <img alt="topic providers" src="https://img.shields.io/badge/providers-ollama%20%7C%20openai%20%7C%20deepseek-F2B15A?style=flat-square&labelColor=6F4611" />
     <img alt="topic observability" src="https://img.shields.io/badge/observability-visible%20ai%20path-DCEFF7?style=flat-square&labelColor=31556F" />
     <img alt="topic memory" src="https://img.shields.io/badge/memory-persistent-9EC5D9?style=flat-square&labelColor=12314F" />
     <img alt="topic languages" src="https://img.shields.io/badge/lang-en%20%7C%20zh%20%7C%20ja-F7F1E8?style=flat-square&labelColor=31556F" />
@@ -112,8 +112,9 @@ Requirements:
 
 - Git
 - Go
-- Ollama
-- At least one local Ollama model, for example `qwen2.5:3b`
+- One AI provider:
+- Ollama with at least one local model, for example `qwen2.5:3b`
+- Or OpenAI / DeepSeek credentials plus a configured model name
 
 Run from source:
 
@@ -141,11 +142,12 @@ Build and run on Windows:
 
 1. Start `gitdex` inside a real Git repository.
 2. Choose your UI language on first launch.
-3. Pick a primary Ollama model and optionally a verifier model.
+3. If you use a local provider, pick a primary model and optionally a verifier model. If you use OpenAI or DeepSeek, configure the model in `.gitdexrc` or `GITDEX_*` env vars first.
 4. Press `o` or `O` to cycle `Workflow`, `Timeline`, `Context`, `Memory`, `Raw`, `Result`, and `Thinking`.
-5. Press `g` to set a goal or `f` to choose a workflow.
-6. Accept a suggestion with `y` and verify the result appears in `Timeline` and `Result`.
-7. Press `L` any time to reopen language settings.
+5. Use `[` and `]` to switch scroll focus between the main column, Git Areas, and Observability. Use mouse wheel or `up/down/pgup/pgdn` to scroll the active pane.
+6. Press `g` to set a goal or `f` to choose a workflow.
+7. Accept a suggestion with `y` and verify the result appears in `Timeline` and `Result`.
+8. Press `L` any time to reopen language settings.
 
 ## Keyboard Shortcuts
 
@@ -159,6 +161,8 @@ Build and run on Windows:
 - `f`: choose a workflow goal
 - `L`: reopen language settings
 - `o` / `O`: cycle observability inspectors
+- `[` / `]`: switch scroll focus across panes
+- `up` / `down` / `PgUp` / `PgDn`: scroll the focused pane
 - `t`: toggle reasoning panel
 - `Tab` / `Shift+Tab`: move across suggestions
 - `q`: quit
@@ -192,6 +196,30 @@ Compatibility reads remain enabled for:
 
 See [configs/example.gitdexrc](configs/example.gitdexrc) for a project-level example.
 
+Minimal cloud-provider examples:
+
+```yaml
+llm:
+  provider: "openai"
+  endpoint: "https://api.openai.com/v1"
+  api_key_env: "OPENAI_API_KEY"
+  primary:
+    provider: "openai"
+    model: "gpt-4.1-mini"
+    enabled: true
+```
+
+```yaml
+llm:
+  provider: "deepseek"
+  endpoint: "https://api.deepseek.com"
+  api_key_env: "DEEPSEEK_API_KEY"
+  primary:
+    provider: "deepseek"
+    model: "deepseek-chat"
+    enabled: true
+```
+
 ## Forking And Module Path
 
 This repository is aligned to:
@@ -221,7 +249,7 @@ internal/config/            config loading, validation, legacy-compatible persis
 internal/engine/            analysis pipeline, parsing, verification, execution helpers
 internal/git/               Git types, parsers, status watcher, CLI integration
 internal/i18n/              locale loading
-internal/llm/               provider abstraction, Ollama client, prompts, response cleanup
+internal/llm/               provider abstraction, Ollama/OpenAI/DeepSeek clients, prompts, response cleanup
 internal/memory/            persistent repository memory
 internal/platform/          GitHub/GitLab/Bitbucket collection
 internal/tui/               Bubble Tea UI and observability panels

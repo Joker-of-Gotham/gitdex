@@ -16,6 +16,7 @@ func GenerateText(ctx context.Context, provider LLMProvider, req GenerateRequest
 	stream, err := provider.GenerateStream(ctx, req)
 	if err == nil {
 		var text strings.Builder
+		var thinking strings.Builder
 		chunkCount := 0
 
 		for {
@@ -24,19 +25,22 @@ func GenerateText(ctx context.Context, provider LLMProvider, req GenerateRequest
 				return nil, ctx.Err()
 			case chunk, ok := <-stream:
 				if !ok {
-					if chunkCount > 0 || text.Len() > 0 {
+					if chunkCount > 0 || text.Len() > 0 || thinking.Len() > 0 {
 						return &GenerateResponse{
 							Text:       strings.TrimSpace(text.String()),
+							Thinking:   strings.TrimSpace(thinking.String()),
 							TokenCount: chunkCount,
 						}, nil
 					}
 					goto fallback
 				}
 				text.WriteString(chunk.Text)
+				thinking.WriteString(chunk.Thinking)
 				chunkCount++
 				if chunk.Done {
 					return &GenerateResponse{
 						Text:       strings.TrimSpace(text.String()),
+						Thinking:   strings.TrimSpace(thinking.String()),
 						TokenCount: chunkCount,
 					}, nil
 				}

@@ -2,10 +2,14 @@ package engine
 
 import (
 	"context"
+	"strings"
+	"sync"
 	"testing"
 
+	"github.com/Joker-of-Gotham/gitdex/internal/config"
 	"github.com/Joker-of-Gotham/gitdex/internal/git"
 	"github.com/Joker-of-Gotham/gitdex/internal/git/status"
+	"github.com/Joker-of-Gotham/gitdex/internal/llm"
 	"github.com/Joker-of-Gotham/gitdex/internal/llm/prompt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -77,10 +81,18 @@ func TestParseLLMResponse_EmptyArray(t *testing.T) {
 	assert.Equal(t, "All clean", result.analysis)
 }
 
-func TestParseLLMResponse_RejectsPlainText(t *testing.T) {
+func TestParseLLMResponse_RejectsShortPlainText(t *testing.T) {
 	input := "git stash pop"
 	_, err := parseLLMResponse(nil, input)
-	require.Error(t, err)
+	require.Error(t, err, "text under 20 chars should still be rejected")
+}
+
+func TestParseLLMResponse_AcceptsLongPlainAnalysis(t *testing.T) {
+	input := "The repository is clean and up to date. No pending changes found. All branches are synchronized with the remote."
+	result, err := parseLLMResponse(nil, input)
+	require.NoError(t, err, "long plain text should be accepted as analysis fallback")
+	assert.Contains(t, result.analysis, "repository is clean")
+	assert.Empty(t, result.suggestions)
 }
 
 func TestParseLLMResponse_RejectsEmptyFence(t *testing.T) {
@@ -214,3 +226,121 @@ func TestParseLLMResponse_StripsQuotedCommitMessageArg(t *testing.T) {
 	require.Len(t, result.suggestions, 1)
 	assert.Equal(t, []string{"git", "commit", "-m", "Fix commit failure"}, result.suggestions[0].Command)
 }
+
+func TestPipelineAnalyze_UsesStructuredThinking(t *testing.T) {
+	state := &status.GitState{
+		LocalBranch: git.BranchInfo{Name: "main"},
+		RemoteInfos: []git.RemoteInfo{{
+			Name:          "origin",
+			FetchURLValid: true,
+			PushURLValid:  true,
+			Reachable:     true,
+		}},
+	}
+	provider := fakeLLMProvider{
+		response: &llm.GenerateResponse{
+			Text:     `{"analysis":"ok","suggestions":[]}`,
+			Thinking: "checked branch, working tree, and remotes",
+			Raw:      `{"output_text":"{\"analysis\":\"ok\",\"suggestions\":[]}"}`,
+		},
+	}
+	pipeline := NewPipelineWithLLM("zen", provider, config.LLMConfig{})
+
+	result, err := pipeline.Analyze(context.Background(), state, nil, AnalyzeOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "checked branch, working tree, and remotes", result.Thinking)
+	assert.Contains(t, result.Trace.RawResponse, "\"output_text\"")
+}
+
+func TestPipelineAnalyze_RepairsRejectedSuggestions(t *testing.T) {
+	state := &status.GitState{
+		LocalBranch:   git.BranchInfo{Name: "main"},
+		LocalBranches: []string{"main", "dev"},
+		RemoteInfos: []git.RemoteInfo{{
+			Name:          "origin",
+			FetchURLValid: true,
+			PushURLValid:  true,
+			Reachable:     true,
+		}},
+		Remotes: []string{"origin"},
+	}
+	provider := &sequenceLLMProvider{
+		responses: []*llm.GenerateResponse{
+			{
+				Text: `{"analysis":"test","suggestions":[{"action":"Switch to main","argv":["git","checkout","main"],"reason":"go to current branch","risk":"safe","interaction":"auto"},{"action":"Inspect status","argv":["git","status"],"reason":"safe inspection","risk":"safe","interaction":"auto"}]}`,
+			},
+			{
+				Text: `[{"action":"Inspect branch details","argv":["git","branch","-vv"],"reason":"current branch is already checked out; inspect tracking state instead","risk":"safe","interaction":"auto"}]`,
+			},
+		},
+	}
+	pipeline := NewPipelineWithLLM("zen", provider, config.LLMConfig{})
+
+	result, err := pipeline.Analyze(context.Background(), state, nil, AnalyzeOptions{})
+	require.NoError(t, err)
+	require.Len(t, result.Suggestions, 2)
+	assert.Equal(t, []string{"git", "status"}, result.Suggestions[0].Command)
+	assert.Equal(t, []string{"git", "branch", "-vv"}, result.Suggestions[1].Command)
+	assert.Contains(t, result.Analysis, "Repaired 1 invalid suggestion")
+	assert.Contains(t, strings.Join(result.Trace.Rejected, "\n"), "invalid for current repository state")
+}
+
+type fakeLLMProvider struct {
+	response *llm.GenerateResponse
+}
+
+func (f fakeLLMProvider) Name() string { return "fake" }
+
+func (f fakeLLMProvider) Generate(context.Context, llm.GenerateRequest) (*llm.GenerateResponse, error) {
+	return f.response, nil
+}
+
+func (f fakeLLMProvider) GenerateStream(context.Context, llm.GenerateRequest) (<-chan llm.StreamChunk, error) {
+	return nil, assert.AnError
+}
+
+func (f fakeLLMProvider) IsAvailable(context.Context) bool { return true }
+
+func (f fakeLLMProvider) ModelInfo(context.Context) (*llm.ModelInfo, error) {
+	return &llm.ModelInfo{Name: "fake"}, nil
+}
+
+func (f fakeLLMProvider) ListModels(context.Context) ([]llm.ModelInfo, error) { return nil, nil }
+
+func (f fakeLLMProvider) SetModel(string) {}
+
+func (f fakeLLMProvider) SetModelForRole(llm.ModelRole, string) {}
+
+type sequenceLLMProvider struct {
+	responses []*llm.GenerateResponse
+	mu        sync.Mutex
+}
+
+func (s *sequenceLLMProvider) Name() string { return "sequence" }
+
+func (s *sequenceLLMProvider) Generate(context.Context, llm.GenerateRequest) (*llm.GenerateResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.responses) == 0 {
+		return nil, assert.AnError
+	}
+	resp := s.responses[0]
+	s.responses = s.responses[1:]
+	return resp, nil
+}
+
+func (s *sequenceLLMProvider) GenerateStream(context.Context, llm.GenerateRequest) (<-chan llm.StreamChunk, error) {
+	return nil, assert.AnError
+}
+
+func (s *sequenceLLMProvider) IsAvailable(context.Context) bool { return true }
+
+func (s *sequenceLLMProvider) ModelInfo(context.Context) (*llm.ModelInfo, error) {
+	return &llm.ModelInfo{Name: "sequence"}, nil
+}
+
+func (s *sequenceLLMProvider) ListModels(context.Context) ([]llm.ModelInfo, error) { return nil, nil }
+
+func (s *sequenceLLMProvider) SetModel(string) {}
+
+func (s *sequenceLLMProvider) SetModelForRole(llm.ModelRole, string) {}

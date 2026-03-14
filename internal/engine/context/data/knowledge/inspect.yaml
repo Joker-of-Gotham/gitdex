@@ -1,26 +1,28 @@
 scenarios:
   - id: daily_check
+    summary: "日常 Git 检查流程：status → diff → diff --staged → log --graph"
     triggers:
       always: true
     sop: |
-      日常检查四件套:
-      1. git status -sb — 判断当前分支、工作区与暂存区状态
-      2. git diff — 确认工作区改动内容
-      3. git diff --staged — 确认即将提交的内容
-      4. git log --oneline --graph -10 — 把当前改动放回时间线
-      补充: git blame <file> — 追溯某行最后由谁修改
-    pitfalls:
-      - git diff 只显示未暂存的改动，已 add 的不会出现
-      - git diff --staged 显示的才是下次 commit 真正会提交的内容
+      Daily Git inspection flow:
+      1. Run `git status -sb` to confirm branch, working tree, staging area, and upstream summary.
+      2. Run `git diff` to inspect unstaged changes.
+      3. Run `git diff --staged` to inspect what the next commit will really contain.
+      4. Run `git log --oneline --graph -10` to place the current work in recent history.
+      5. If a specific file is unexpectedly ignored, use `git check-ignore -v <existing-path>`.
+    pitfalls: |
+      - `git diff` does not show staged content; use `git diff --staged` for that.
+      - `git check-ignore -v` should target a real path that exists in the repository or working tree.
 
   - id: detached_head
+    summary: "Detached HEAD 恢复：检查未提交改动 → switch 回分支或 switch -c 保存"
     triggers:
       detached_head: true
     sop: |
-      当前处于 detached HEAD 状态:
-      1. git status 查看当前位置
-      2. 如果只是查看: git switch <branch> 回到正常分支
-      3. 如果需要保留改动: git switch -c <new-branch> 创建新分支
-    pitfalls:
-      - 在 detached HEAD 上的提交如果不创建分支指向它，可能会丢失
-      - 不要在 detached HEAD 上进行日常开发
+      Detached HEAD recovery flow:
+      1. Run `git status` to see whether there are uncommitted changes on the detached commit.
+      2. If the user only wanted to inspect history, return with `git switch <existing-branch>`.
+      3. If the current detached commit contains work that must be preserved, create a branch with `git switch -c <new-branch>`.
+    pitfalls: |
+      - Do not create a branch with a name that already exists.
+      - New commits made on detached HEAD are easy to lose if no branch references them.

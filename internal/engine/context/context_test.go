@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestGet_LoadsData(t *testing.T) {
+func TestGetLoadsData(t *testing.T) {
 	c := Get()
 	assert.NotEmpty(t, c.Placeholders.ExactPatterns, "exact patterns should be loaded")
 	assert.NotEmpty(t, c.Placeholders.PathPatterns, "path patterns should be loaded")
@@ -14,20 +14,48 @@ func TestGet_LoadsData(t *testing.T) {
 	assert.NotEmpty(t, c.WorkflowList(), "workflows should be loaded")
 }
 
-func TestIsPlaceholder_AngleBrackets(t *testing.T) {
+func TestWorkflowListHasReadableLabels(t *testing.T) {
+	c := Get()
+	for _, workflow := range c.WorkflowList() {
+		assert.NotEmpty(t, workflow.Label, "workflow %s should have a label", workflow.ID)
+		assert.NotContains(t, workflow.Label, "�", "workflow %s should not contain replacement characters", workflow.ID)
+		assert.NotContains(t, workflow.Goal, "�", "workflow %s goal should not contain replacement characters", workflow.ID)
+	}
+}
+
+func TestWorkflowListIncludesSecondBatchPlatformFlows(t *testing.T) {
+	c := Get()
+	ids := map[string]bool{}
+	for _, workflow := range c.WorkflowList() {
+		ids[workflow.ID] = true
+	}
+	for _, required := range []string{
+		"release",
+		"pr_review_approval",
+		"pages_setup",
+		"secrets_variables",
+		"packages_cleanup_restore",
+		"notifications_routing",
+		"deploy_key_rotation",
+	} {
+		assert.True(t, ids[required], "workflow %s should exist", required)
+	}
+}
+
+func TestIsPlaceholderAngleBrackets(t *testing.T) {
 	c := Get()
 	assert.True(t, c.IsPlaceholder("<remote-url>"))
 	assert.True(t, c.IsPlaceholder("<branch-name>"))
 }
 
-func TestIsPlaceholder_ExactPatterns(t *testing.T) {
+func TestIsPlaceholderExactPatterns(t *testing.T) {
 	c := Get()
 	assert.True(t, c.IsPlaceholder("git@github.com:your-username/your-repo.git"))
 	assert.True(t, c.IsPlaceholder("https://example.com/repo"))
 	assert.False(t, c.IsPlaceholder("git@github.com:realuser/realrepo.git"))
 }
 
-func TestIsPlaceholder_PathPatterns(t *testing.T) {
+func TestIsPlaceholderPathPatterns(t *testing.T) {
 	c := Get()
 	assert.True(t, c.IsPlaceholder("git@github.com:user/repo.git"))
 	assert.True(t, c.IsPlaceholder("git@github.com:username/repo.git"))

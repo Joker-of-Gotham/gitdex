@@ -30,6 +30,66 @@ func convertSuggestion(_ *status.GitState, idx int, item llmSuggestionJSON) (git
 	}
 	interaction := normalizeInteraction(item.Interaction, argv)
 
+	if interaction == git.PlatformExec {
+		if strings.TrimSpace(item.CapabilityID) == "" {
+			return git.Suggestion{}, fmt.Errorf("AI suggestion %d is platform_exec but missing capability_id", idx)
+		}
+		flow := strings.ToLower(strings.TrimSpace(item.Flow))
+		switch flow {
+		case "inspect", "mutate", "validate", "rollback":
+		default:
+			return git.Suggestion{}, fmt.Errorf("AI suggestion %d is platform_exec but has invalid flow %q", idx, item.Flow)
+		}
+
+		inputs := make([]git.InputField, 0, len(item.Inputs))
+		for _, in := range item.Inputs {
+			label := strings.TrimSpace(in.Label)
+			if label == "" {
+				label = "Value"
+			}
+			key := strings.TrimSpace(in.Key)
+			if key == "" {
+				return git.Suggestion{}, fmt.Errorf("AI suggestion %d platform_exec input missing key", idx)
+			}
+			inputs = append(inputs, git.InputField{
+				Key:          key,
+				Label:        label,
+				Placeholder:  defaultInputPlaceholder(key, label, strings.TrimSpace(in.Placeholder)),
+				ArgIndex:     -1,
+				DefaultValue: in.DefaultValue,
+			})
+		}
+
+		s := git.Suggestion{
+			ID:          fmt.Sprintf("llm-%d", idx),
+			Action:      strings.TrimSpace(item.Action),
+			Reason:      strings.TrimSpace(item.Reason),
+			RiskLevel:   parseRisk(item.Risk),
+			Source:      git.SourceLLM,
+			Confidence:  0.85,
+			Interaction: git.PlatformExec,
+			Inputs:      inputs,
+			PlatformOp: &git.PlatformExecInfo{
+				CapabilityID:    strings.TrimSpace(item.CapabilityID),
+				Flow:            flow,
+				Operation:       strings.TrimSpace(item.Operation),
+				ResourceID:      strings.TrimSpace(item.ResourceID),
+				Scope:           cloneStringMap(item.Scope),
+				Query:           cloneStringMap(item.Query),
+				Payload:         append([]byte(nil), item.Payload...),
+				ValidatePayload: append([]byte(nil), item.ValidatePayload...),
+				RollbackPayload: append([]byte(nil), item.RollbackPayload...),
+			},
+		}
+		if s.Action == "" {
+			s.Action = fmt.Sprintf("%s %s", s.PlatformOp.Flow, s.PlatformOp.CapabilityID)
+		}
+		if s.Reason == "" {
+			s.Reason = "AI judged this platform administration flow is needed."
+		}
+		return s, nil
+	}
+
 	if interaction == git.FileWrite {
 		if strings.TrimSpace(item.FilePath) == "" {
 			return git.Suggestion{}, fmt.Errorf("AI suggestion %d is file_write but missing file_path", idx)
@@ -186,6 +246,8 @@ func convertSuggestion(_ *status.GitState, idx int, item llmSuggestionJSON) (git
 
 func normalizeInteraction(raw string, argv []string) git.InteractionMode {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "platform_exec", "platform":
+		return git.PlatformExec
 	case "needs_input", "input":
 		return git.NeedsInput
 	case "info", "advisory":
@@ -205,13 +267,26 @@ func normalizeInteraction(raw string, argv []string) git.InteractionMode {
 	}
 }
 
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
 func parseRisk(r string) git.RiskLevel {
 	switch strings.ToLower(strings.TrimSpace(r)) {
-	case "caution", "warning":
+	case "safe", "low", "none":
+		return git.RiskSafe
+	case "caution", "warning", "medium":
 		return git.RiskCaution
 	case "dangerous", "danger", "high":
 		return git.RiskDangerous
 	default:
-		return git.RiskCaution
+		return git.RiskSafe
 	}
 }

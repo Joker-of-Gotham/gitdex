@@ -1,5 +1,6 @@
 scenarios:
   - id: partial_staging
+    summary: "工作区和暂存区同时有改动时的精确提交流（add -p 逐块暂存）"
     triggers:
       working_count_gt: 0
       staged_count_gt: 0
@@ -15,6 +16,7 @@ scenarios:
       - git commit -a 只处理已跟踪文件，不包含新文件
 
   - id: mixed_changes
+    summary: "混合改动检查与拆分（git add -p 按 hunk 拆分，每次提交只做一件事）"
     triggers:
       working_count_gt: 3
     sop: |
@@ -27,6 +29,7 @@ scenarios:
       - 一次提交混入多个不相关改动会导致 review/revert/cherry-pick 困难
 
   - id: commit_message_guidance
+    summary: "Conventional Commits 规范：fix/feat/docs 前缀 + scope + 简洁标题"
     triggers:
       staged_count_gt: 0
     sop: |
@@ -43,6 +46,7 @@ scenarios:
       - 标题行保持短而完整，一行装不下说明提交边界不够干净
 
   - id: amend_fixup
+    summary: "提交修正策略：amend 改最后一个提交、fixup+autosquash 改更早提交"
     triggers:
       commit_count_gt: 0
       staged_count_gt: 0

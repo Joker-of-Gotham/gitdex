@@ -41,10 +41,24 @@ type TemplateData struct {
 }
 
 type WorkflowDefinition struct {
-	ID            string   `yaml:"id"`
-	Label         string   `yaml:"label"`
-	Goal          string   `yaml:"goal"`
-	Prerequisites []string `yaml:"prerequisites"`
+	ID            string                   `yaml:"id"`
+	Label         string                   `yaml:"label"`
+	Goal          string                   `yaml:"goal"`
+	Prerequisites []string                 `yaml:"prerequisites"`
+	Capabilities  []string                 `yaml:"capabilities,omitempty"`
+	Prefill       []WorkflowPlatformAction `yaml:"prefill,omitempty"`
+}
+
+type WorkflowPlatformAction struct {
+	CapabilityID string            `yaml:"capability_id"`
+	Flow         string            `yaml:"flow,omitempty"`
+	Operation    string            `yaml:"operation,omitempty"`
+	ResourceID   string            `yaml:"resource_id,omitempty"`
+	Scope        map[string]string `yaml:"scope,omitempty"`
+	Query        map[string]string `yaml:"query,omitempty"`
+	Payload      any               `yaml:"payload,omitempty"`
+	Validate     any               `yaml:"validate,omitempty"`
+	Rollback     any               `yaml:"rollback,omitempty"`
 }
 
 type WorkflowData struct {

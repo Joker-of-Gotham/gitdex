@@ -12,52 +12,113 @@ import (
 	gitplatform "github.com/Joker-of-Gotham/gitdex/internal/platform"
 )
 
-const analyzeSystem = `You are a Git decision engine in a terminal UI. Output all text in Simplified Chinese.
-Reason ONLY from provided context. Do not invent facts.
+func analyzeSystem(languageCode string) string {
+	languageName := "English"
+	analysisFieldLanguage := "English"
+	switch strings.ToLower(strings.TrimSpace(languageCode)) {
+	case "zh":
+		languageName = "Simplified Chinese"
+		analysisFieldLanguage = "Chinese"
+	case "ja":
+		languageName = "Japanese"
+		analysisFieldLanguage = "Japanese"
+	}
 
-PRIORITY RULES (in order):
-1. If ActiveGoal exists, ALL suggestions MUST directly advance that goal. Nothing else.
-2. Never repeat commands the user has already skipped or that already succeeded.
-3. Prefer executable actions ("auto"/"needs_input"/"file_write") over "info".
+	return fmt.Sprintf(`You are a Git operations engine. Analyze the provided context and suggest actions.
+Output all text in %s. Reason from provided context.
 
-MODE: "zen" -> 1-3 suggestions. "full" -> up to 6 suggestions.
-
-COMMAND FORMAT:
-- "argv": JSON string array, e.g. ["git","add","."]
-- "needs_input": when argv has user-specific values. Use "<placeholder>" syntax.
-- Never emit fake values like "your-username" in auto commands.
-
-FILE OPERATIONS (interaction "file_write"):
-- Set "file_path", "file_content", "file_operation" ("create"|"update"|"delete"|"append").
-- For delete: set "file_operation":"delete", "argv" can be empty [].
-- For update: read current content from file_context, output COMPLETE new content.
-- Prefer file_write over git commands when goal involves file changes.
-
-RISK: "safe" | "caution" | "dangerous".
-
-OUTPUT: Strict JSON only. No markdown fences. No prose outside JSON.
+OUTPUT FORMAT (strict JSON, no markdown fences, no prose outside JSON):
 {
-  "analysis": "2-4 sentences in Chinese",
-  "goal_status": "in_progress|completed|blocked (if goal set)",
+  "analysis": "situational analysis in %s",
+  "goal_status": "in_progress|completed|blocked (when a goal is set)",
+  "knowledge_request": ["source#id", "..."] (optional, request knowledge by ID from catalog),
   "suggestions": [
     {
       "action": "short title",
       "argv": ["git","..."],
-      "reason": "why now",
-      "risk": "safe",
-      "interaction": "auto|needs_input|info|file_write",
-      "file_path": "optional",
-      "file_content": "optional",
-      "file_operation": "optional"
+      "reason": "why",
+      "risk": "safe|caution|dangerous",
+      "interaction": "auto|needs_input|info|file_write|platform_exec",
+      "file_path": "(for file_write)",
+      "file_content": "(for file_write)",
+      "file_operation": "create|update|delete|append (for file_write)",
+      "capability_id": "(for platform_exec)",
+      "flow": "inspect|mutate|validate|rollback (for platform_exec)",
+      "operation": "create|update|delete|build|ping (for platform_exec mutate)",
+      "resource_id": "(for platform_exec, existing resource)",
+      "scope": {},
+      "query": {},
+      "payload": {},
+      "validate_payload": {},
+      "rollback_payload": {}
     }
   ]
-}`
+}
+
+INTERACTION TYPES:
+- "auto": executable immediately, argv is a JSON string array
+- "needs_input": requires user input, use <placeholder> in argv
+- "info": informational observation
+- "file_write": file operation (set file_path, file_content, file_operation)
+- "platform_exec": platform admin operation (set capability_id, flow, and optional scope/query/payload)
+
+RISK LEVELS: "safe" | "caution" | "dangerous"`, languageName, analysisFieldLanguage)
+}
 
 // MemoryContext holds long-term memory data to inject into prompts.
 type MemoryContext struct {
 	UserPreferences map[string]string `json:"user_preferences,omitempty"`
 	RepoPatterns    []string          `json:"repo_patterns,omitempty"`
 	ResolvedIssues  []string          `json:"resolved_issues,omitempty"`
+	RecentEvents    []string          `json:"recent_events,omitempty"`
+	ArtifactNotes   []string          `json:"artifact_notes,omitempty"`
+	Episodes        []MemoryEpisode   `json:"episodes,omitempty"`
+	SemanticFacts   []SemanticFact    `json:"semantic_facts,omitempty"`
+	TaskState       *TaskMemory       `json:"task_state,omitempty"`
+}
+
+type EvidenceRef struct {
+	Kind  string `json:"kind,omitempty"`
+	Ref   string `json:"ref,omitempty"`
+	Label string `json:"label,omitempty"`
+}
+
+type MemoryEpisode struct {
+	ID           string        `json:"id,omitempty"`
+	At           time.Time     `json:"at,omitempty"`
+	Kind         string        `json:"kind,omitempty"`
+	Surface      string        `json:"surface,omitempty"`
+	Action       string        `json:"action,omitempty"`
+	Summary      string        `json:"summary,omitempty"`
+	Result       string        `json:"result,omitempty"`
+	WorkflowID   string        `json:"workflow_id,omitempty"`
+	CapabilityID string        `json:"capability_id,omitempty"`
+	Flow         string        `json:"flow,omitempty"`
+	Operation    string        `json:"operation,omitempty"`
+	Confidence   float64       `json:"confidence,omitempty"`
+	Evidence     []string      `json:"evidence,omitempty"`
+	EvidenceRefs []EvidenceRef `json:"evidence_refs,omitempty"`
+	LedgerID     string        `json:"ledger_id,omitempty"`
+}
+
+type SemanticFact struct {
+	Fact          string        `json:"fact,omitempty"`
+	Confidence    float64       `json:"confidence,omitempty"`
+	Evidence      []string      `json:"evidence,omitempty"`
+	EvidenceRefs  []EvidenceRef `json:"evidence_refs,omitempty"`
+	LastValidated time.Time     `json:"last_validated,omitempty"`
+	Decay         float64       `json:"decay,omitempty"`
+	CurrentScore  float64       `json:"current_score,omitempty"`
+	Stale         bool          `json:"stale,omitempty"`
+}
+
+type TaskMemory struct {
+	Goal        string    `json:"goal,omitempty"`
+	WorkflowID  string    `json:"workflow_id,omitempty"`
+	Status      string    `json:"status,omitempty"`
+	Constraints []string  `json:"constraints,omitempty"`
+	Pending     []string  `json:"pending,omitempty"`
+	UpdatedAt   time.Time `json:"updated_at,omitempty"`
 }
 
 // KnowledgeFragment is a retrieved piece of Git knowledge.
@@ -116,6 +177,7 @@ type OperationRecord struct {
 	Command string `json:"command,omitempty"`
 	Action  string `json:"action,omitempty"`
 	Result  string `json:"result"`
+	Output  string `json:"output,omitempty"`
 	Mode    string `json:"mode,omitempty"`
 }
 
@@ -126,10 +188,33 @@ type GoalRecord struct {
 }
 
 type SessionContext struct {
-	ActiveGoal     string            `json:"active_goal,omitempty"`
-	GoalHistory    []GoalRecord      `json:"goal_history,omitempty"`
-	SkippedActions []string          `json:"skipped_actions,omitempty"`
-	Preferences    map[string]string `json:"preferences,omitempty"`
+	ActiveGoal       string            `json:"active_goal,omitempty"`
+	ActiveGoalStatus string            `json:"active_goal_status,omitempty"`
+	GoalHistory      []GoalRecord      `json:"goal_history,omitempty"`
+	SkippedActions   []string          `json:"skipped_actions,omitempty"`
+	Preferences      map[string]string `json:"preferences,omitempty"`
+}
+
+type WorkflowOrchestrationStep struct {
+	Title      string            `json:"title"`
+	Rationale  string            `json:"rationale,omitempty"`
+	Capability string            `json:"capability_id,omitempty"`
+	Flow       string            `json:"flow,omitempty"`
+	Operation  string            `json:"operation,omitempty"`
+	ResourceID string            `json:"resource_id,omitempty"`
+	Scope      map[string]string `json:"scope,omitempty"`
+	Query      map[string]string `json:"query,omitempty"`
+	Payload    json.RawMessage   `json:"payload,omitempty"`
+	Validate   json.RawMessage   `json:"validate_payload,omitempty"`
+	Rollback   json.RawMessage   `json:"rollback_payload,omitempty"`
+}
+
+type WorkflowOrchestration struct {
+	WorkflowID    string                      `json:"workflow_id"`
+	WorkflowLabel string                      `json:"workflow_label"`
+	Goal          string                      `json:"goal,omitempty"`
+	Capabilities  []string                    `json:"capabilities,omitempty"`
+	Steps         []WorkflowOrchestrationStep `json:"steps,omitempty"`
 }
 
 type PRSummary struct {
@@ -138,25 +223,50 @@ type PRSummary struct {
 	URL    string `json:"url"`
 }
 
+type CapabilityPlaybook struct {
+	ID       string   `json:"id"`
+	Label    string   `json:"label"`
+	Category string   `json:"category"`
+	DocsURL  string   `json:"docs_url,omitempty"`
+	Inspect  []string `json:"inspect,omitempty"`
+	Apply    []string `json:"apply,omitempty"`
+	Verify   []string `json:"verify,omitempty"`
+	Score    int      `json:"score,omitempty"`
+}
+
 type PlatformState struct {
-	Detected      string      `json:"detected"`
-	DefaultBranch string      `json:"default_branch,omitempty"`
-	CIStatus      string      `json:"ci_status,omitempty"`
-	OpenPRs       []PRSummary `json:"open_prs,omitempty"`
-	LastError     string      `json:"last_error,omitempty"`
+	Detected      string               `json:"detected"`
+	DefaultBranch string               `json:"default_branch,omitempty"`
+	CIStatus      string               `json:"ci_status,omitempty"`
+	OpenPRs       []PRSummary          `json:"open_prs,omitempty"`
+	Capabilities  []string             `json:"capabilities,omitempty"`
+	AdminSummary  []string             `json:"admin_summary,omitempty"`
+	SurfaceStates []string             `json:"surface_states,omitempty"`
+	Playbooks     []CapabilityPlaybook `json:"playbooks,omitempty"`
+	LastError     string               `json:"last_error,omitempty"`
+}
+
+// KnowledgeCatalogEntry is a lightweight index entry for the knowledge catalog partition.
+type KnowledgeCatalogEntry struct {
+	ID       string   `json:"id"`
+	Source   string   `json:"source"`
+	Summary  string   `json:"summary"`
+	Triggers []string `json:"triggers"`
 }
 
 // AnalyzeInput holds all data sources for analysis prompt construction.
 type AnalyzeInput struct {
-	State           *status.GitState
-	Mode            string
-	RecentOps       []OperationRecord
-	Session         *SessionContext
-	AnalysisHistory []string
-	PlatformState   *PlatformState
-	Memory          *MemoryContext
-	Knowledge       []KnowledgeFragment
-	FileContext     *FileContext // file contents for LLM to read/modify
+	State            *status.GitState
+	Mode             string
+	RecentOps        []OperationRecord
+	Session          *SessionContext
+	Workflow         *WorkflowOrchestration
+	AnalysisHistory  []string
+	PlatformState    *PlatformState
+	Memory           *MemoryContext
+	Knowledge        []KnowledgeFragment
+	KnowledgeCatalog []KnowledgeCatalogEntry
+	FileContext      *FileContext
 }
 
 // FileContext holds important file contents.
@@ -166,7 +276,7 @@ type FileContext struct {
 
 // BuildAnalyzeRich constructs prompts with full data sources and budget management.
 func (b *PromptBuilder) BuildAnalyzeRich(input AnalyzeInput) (system, user string) {
-	systemPrompt := analyzeSystem
+	systemPrompt := analyzeSystem(preferredOutputLanguage(input.Session))
 
 	budget := b.ContextBudget
 	if budget <= 0 {
@@ -202,6 +312,14 @@ func (b *PromptBuilder) BuildAnalyzeRich(input AnalyzeInput) (system, user strin
 		})
 	}
 
+	if input.Workflow != nil && len(input.Workflow.Steps) > 0 {
+		partitions = append(partitions, llmctx.Partition{
+			Name:     "workflow_orchestration",
+			Priority: llmctx.PrioExtendedState,
+			Content:  b.formatWorkflowOrchestration(*input.Workflow),
+		})
+	}
+
 	// Knowledge fragments
 	if len(input.Knowledge) > 0 {
 		var kbParts []string
@@ -212,6 +330,16 @@ func (b *PromptBuilder) BuildAnalyzeRich(input AnalyzeInput) (system, user strin
 			Name:     "knowledge",
 			Priority: llmctx.PrioKnowledge,
 			Content:  "Relevant Git SOP/knowledge for current state:\n" + strings.Join(kbParts, "\n\n"),
+		})
+	}
+
+	// Knowledge catalog (lightweight index of all available scenarios)
+	if len(input.KnowledgeCatalog) > 0 {
+		catalogJSON, _ := json.Marshal(input.KnowledgeCatalog)
+		partitions = append(partitions, llmctx.Partition{
+			Name:     "knowledge_catalog",
+			Priority: llmctx.PrioKnowledgeCatalog,
+			Content:  "Available knowledge base scenarios (request by ID via \"knowledge_request\" field if you need detailed SOP):\n" + string(catalogJSON),
 		})
 	}
 
@@ -267,6 +395,13 @@ func (b *PromptBuilder) BuildAnalyzeRich(input AnalyzeInput) (system, user strin
 			Priority: llmctx.PrioPlatformState,
 			Content:  b.formatPlatformState(*input.PlatformState),
 		})
+		if guidance := b.formatPlatformExecGuidance(input.PlatformState, input.Session); guidance != "" {
+			partitions = append(partitions, llmctx.Partition{
+				Name:     "platform_exec_schema",
+				Priority: llmctx.PrioPlatformState,
+				Content:  guidance,
+			})
+		}
 	}
 
 	// Long-term memory
@@ -327,6 +462,19 @@ func (b *PromptBuilder) BuildAnalyzeRich(input AnalyzeInput) (system, user strin
 	return system, user
 }
 
+func preferredOutputLanguage(session *SessionContext) string {
+	if session == nil || len(session.Preferences) == 0 {
+		return "en"
+	}
+	lang := strings.ToLower(strings.TrimSpace(session.Preferences["language"]))
+	switch lang {
+	case "zh", "ja", "en":
+		return lang
+	default:
+		return "en"
+	}
+}
+
 func (b *PromptBuilder) formatRecentOps(ops []OperationRecord) string {
 	data, err := json.Marshal(ops)
 	if err != nil {
@@ -343,13 +491,21 @@ func (b *PromptBuilder) formatRecentOps(ops []OperationRecord) string {
 func (b *PromptBuilder) formatSessionContext(session SessionContext) string {
 	var sb strings.Builder
 
+	if len(session.Preferences) > 0 {
+		if lang := strings.TrimSpace(session.Preferences["language"]); lang != "" {
+			sb.WriteString("PREFERRED RESPONSE LANGUAGE: " + lang + "\n")
+		}
+	}
+
 	if goal := strings.TrimSpace(session.ActiveGoal); goal != "" {
 		sb.WriteString("ACTIVE GOAL: " + goal + "\n")
-		sb.WriteString("ALL suggestions must directly advance this goal. Do NOT suggest unrelated actions.\n")
+		if status := strings.TrimSpace(session.ActiveGoalStatus); status != "" {
+			sb.WriteString("GOAL STATUS: " + status + "\n")
+		}
 	}
 
 	if len(session.SkippedActions) > 0 {
-		sb.WriteString("SKIPPED (do NOT repeat): ")
+		sb.WriteString("Previously skipped actions: ")
 		sb.WriteString(strings.Join(session.SkippedActions, "; "))
 		sb.WriteString("\n")
 	}
@@ -365,6 +521,33 @@ func (b *PromptBuilder) formatSessionContext(session SessionContext) string {
 	}
 
 	return sb.String()
+}
+
+func (b *PromptBuilder) formatWorkflowOrchestration(flow WorkflowOrchestration) string {
+	var sb strings.Builder
+	sb.WriteString("Available platform operations:\n")
+	if id := strings.TrimSpace(flow.WorkflowID); id != "" {
+		sb.WriteString("workflow: " + id + "\n")
+	}
+	if label := strings.TrimSpace(flow.WorkflowLabel); label != "" {
+		sb.WriteString("label: " + label + "\n")
+	}
+	if goal := strings.TrimSpace(flow.Goal); goal != "" {
+		sb.WriteString("goal: " + goal + "\n")
+	}
+	if len(flow.Capabilities) > 0 {
+		sb.WriteString("capabilities: " + strings.Join(flow.Capabilities, ", ") + "\n")
+	}
+	for idx, step := range flow.Steps {
+		sb.WriteString(fmt.Sprintf("step_%d: %s\n", idx+1, step.Title))
+		if strings.TrimSpace(step.Rationale) != "" {
+			sb.WriteString("  rationale: " + step.Rationale + "\n")
+		}
+		payload, _ := json.MarshalIndent(step, "", "  ")
+		sb.WriteString(string(payload))
+		sb.WriteString("\n")
+	}
+	return strings.TrimSpace(sb.String())
 }
 
 func (b *PromptBuilder) formatAnalysisHistory(history []string) string {
@@ -391,6 +574,79 @@ func (b *PromptBuilder) formatPlatformState(state PlatformState) string {
 		return ""
 	}
 	return "Platform API state:\n" + string(data)
+}
+
+func (b *PromptBuilder) formatPlatformExecGuidance(state *PlatformState, session *SessionContext) string {
+	if state == nil {
+		return ""
+	}
+	goal := ""
+	if session != nil {
+		goal = session.ActiveGoal
+	}
+	preferred := make([]string, 0, len(state.Playbooks))
+	for _, playbook := range state.Playbooks {
+		if id := strings.TrimSpace(playbook.ID); id != "" {
+			preferred = append(preferred, id)
+		}
+	}
+	hints := gitplatform.RecommendedExecutorSchemas(gitplatform.ParsePlatform(state.Detected), goal, preferred, 5)
+	boundaryIDs := append([]string(nil), preferred...)
+	for _, hint := range hints {
+		if id := strings.TrimSpace(hint.CapabilityID); id != "" {
+			boundaryIDs = append(boundaryIDs, id)
+		}
+	}
+	boundaries := gitplatform.RelevantCapabilityBoundaries(gitplatform.ParsePlatform(state.Detected), boundaryIDs)
+	if len(hints) == 0 && len(boundaries) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("Platform executor schema hints:\n")
+	for _, hint := range hints {
+		sb.WriteString("[" + hint.CapabilityID + "] " + hint.Label + "\n")
+		if hint.Summary != "" {
+			sb.WriteString("summary: " + hint.Summary + "\n")
+		}
+		if len(hint.InspectViews) > 0 {
+			sb.WriteString("inspect views: " + strings.Join(hint.InspectViews, " | ") + "\n")
+		}
+		if len(hint.MutateOps) > 0 {
+			sb.WriteString("mutate ops: " + strings.Join(hint.MutateOps, " | ") + "\n")
+		}
+		if len(hint.ScopeKeys) > 0 {
+			sb.WriteString("scope keys: " + strings.Join(hint.ScopeKeys, ", ") + "\n")
+		}
+		if len(hint.QueryKeys) > 0 {
+			sb.WriteString("query keys: " + strings.Join(hint.QueryKeys, ", ") + "\n")
+		}
+		for _, rule := range hint.FieldRules {
+			sb.WriteString("- " + rule + "\n")
+		}
+		for _, note := range hint.Notes {
+			sb.WriteString("note: " + note + "\n")
+		}
+		if strings.TrimSpace(hint.Example) != "" {
+			sb.WriteString("example: " + hint.Example + "\n")
+		}
+		sb.WriteString("\n")
+	}
+	if len(boundaries) > 0 {
+		sb.WriteString("Platform API boundaries:\n")
+		for _, boundary := range boundaries {
+			sb.WriteString("[" + boundary.CapabilityID + "] mode=" + boundary.Mode + "\n")
+			sb.WriteString("reason: " + boundary.Reason + "\n")
+			if len(boundary.Supported) > 0 {
+				sb.WriteString("supported: " + strings.Join(boundary.Supported, " | ") + "\n")
+			}
+			if len(boundary.Missing) > 0 {
+				sb.WriteString("missing: " + strings.Join(boundary.Missing, " | ") + "\n")
+			}
+			sb.WriteString("\n")
+		}
+	}
+	return strings.TrimSpace(sb.String())
 }
 
 // BuildCommitMessage constructs a prompt specifically for commit message generation.
@@ -428,6 +684,26 @@ func (b *PromptBuilder) formatFullContext(state *status.GitState, mode string) s
 		RemoteStatus string `json:"remote_status"`
 		LastError    string `json:"last_error,omitempty"`
 	}
+	type branchSummary struct {
+		Name       string `json:"name"`
+		Upstream   string `json:"upstream,omitempty"`
+		Ahead      int    `json:"ahead,omitempty"`
+		Behind     int    `json:"behind,omitempty"`
+		LastCommit string `json:"last_commit,omitempty"`
+		IsMerged   bool   `json:"is_merged"`
+		IsCurrent  bool   `json:"is_current"`
+	}
+	type stashSummary struct {
+		Index   int    `json:"index"`
+		Message string `json:"message"`
+	}
+	type submoduleSummary struct {
+		Name   string `json:"name"`
+		Path   string `json:"path"`
+		URL    string `json:"url,omitempty"`
+		Commit string `json:"commit,omitempty"`
+		Status string `json:"status,omitempty"`
+	}
 	type promptContext struct {
 		Mode        string `json:"mode"`
 		Environment struct {
@@ -435,21 +711,28 @@ func (b *PromptBuilder) formatFullContext(state *status.GitState, mode string) s
 			PreferredRemoteScheme string `json:"preferred_remote_scheme"`
 		} `json:"environment"`
 		Repository struct {
-			IsInitial        bool     `json:"is_initial"`
-			HeadRef          string   `json:"head_ref,omitempty"`
-			Branch           string   `json:"branch"`
-			DetachedHead     bool     `json:"detached_head"`
-			CommitCount      int      `json:"commit_count"`
-			WorkingCount     int      `json:"working_count"`
-			StagedCount      int      `json:"staged_count"`
-			LocalBranches    []string `json:"local_branches,omitempty"`
-			Tags             []string `json:"tags,omitempty"`
-			HasGitIgnore     bool     `json:"has_gitignore"`
-			MergeInProgress  bool     `json:"merge_in_progress"`
-			RebaseInProgress bool     `json:"rebase_in_progress"`
-			CherryInProgress bool     `json:"cherry_pick_in_progress"`
-			BisectInProgress bool     `json:"bisect_in_progress"`
-			StashCount       int      `json:"stash_count"`
+			IsInitial        bool               `json:"is_initial"`
+			HeadRef          string             `json:"head_ref,omitempty"`
+			Branch           string             `json:"branch"`
+			DetachedHead     bool               `json:"detached_head"`
+			CommitCount      int                `json:"commit_count"`
+			WorkingCount     int                `json:"working_count"`
+			StagedCount      int                `json:"staged_count"`
+			Branches         []branchSummary    `json:"branches,omitempty"`
+			MergedBranches   []string           `json:"merged_branches,omitempty"`
+			Tags             []string           `json:"tags,omitempty"`
+			HasGitIgnore     bool               `json:"has_gitignore"`
+			HasGitAttributes bool               `json:"has_gitattributes"`
+			MergeInProgress  bool               `json:"merge_in_progress"`
+			RebaseInProgress bool               `json:"rebase_in_progress"`
+			CherryInProgress bool               `json:"cherry_pick_in_progress"`
+			BisectInProgress bool               `json:"bisect_in_progress"`
+			Stashes          []stashSummary     `json:"stashes,omitempty"`
+			Submodules       []submoduleSummary `json:"submodules,omitempty"`
+			RecentReflog     []string           `json:"recent_reflog,omitempty"`
+			DescribeTag      string             `json:"describe_tag,omitempty"`
+			Worktrees        []string           `json:"worktrees,omitempty"`
+			DefaultBranch    string             `json:"default_branch,omitempty"`
 		} `json:"repository"`
 		Sync struct {
 			Upstream             string   `json:"upstream,omitempty"`
@@ -492,14 +775,76 @@ func (b *PromptBuilder) formatFullContext(state *status.GitState, mode string) s
 	ctx.Repository.CommitCount = state.CommitCount
 	ctx.Repository.WorkingCount = len(state.WorkingTree)
 	ctx.Repository.StagedCount = len(state.StagingArea)
-	ctx.Repository.LocalBranches = append(ctx.Repository.LocalBranches, state.LocalBranches...)
-	ctx.Repository.Tags = append(ctx.Repository.Tags, state.Tags...)
+
+	const maxBranches = 30
+	const maxMergedBranches = 20
+	const maxTags = 15
+
+	if len(state.BranchDetails) > 0 {
+		for i, bd := range state.BranchDetails {
+			if i >= maxBranches {
+				break
+			}
+			ctx.Repository.Branches = append(ctx.Repository.Branches, branchSummary{
+				Name:       bd.Name,
+				Upstream:   bd.Upstream,
+				Ahead:      bd.Ahead,
+				Behind:     bd.Behind,
+				LastCommit: bd.LastCommit,
+				IsMerged:   bd.IsMerged,
+				IsCurrent:  bd.IsCurrent,
+			})
+		}
+	} else if len(state.LocalBranches) > 0 {
+		for i, name := range state.LocalBranches {
+			if i >= maxBranches {
+				break
+			}
+			ctx.Repository.Branches = append(ctx.Repository.Branches, branchSummary{
+				Name:      name,
+				IsCurrent: name == state.LocalBranch.Name,
+			})
+		}
+	}
+
+	merged := state.MergedBranches
+	if len(merged) > maxMergedBranches {
+		merged = merged[:maxMergedBranches]
+	}
+	ctx.Repository.MergedBranches = append(ctx.Repository.MergedBranches, merged...)
+	tags := state.Tags
+	if len(tags) > maxTags {
+		tags = tags[:maxTags]
+	}
+	ctx.Repository.Tags = append(ctx.Repository.Tags, tags...)
 	ctx.Repository.HasGitIgnore = state.HasGitIgnore
+	ctx.Repository.HasGitAttributes = state.HasGitAttributes
 	ctx.Repository.MergeInProgress = state.MergeInProgress
 	ctx.Repository.RebaseInProgress = state.RebaseInProgress
 	ctx.Repository.CherryInProgress = state.CherryInProgress
 	ctx.Repository.BisectInProgress = state.BisectInProgress
-	ctx.Repository.StashCount = len(state.StashStack)
+
+	for _, entry := range state.StashStack {
+		ctx.Repository.Stashes = append(ctx.Repository.Stashes, stashSummary{
+			Index:   entry.Index,
+			Message: entry.Message,
+		})
+	}
+
+	for _, sub := range state.Submodules {
+		ctx.Repository.Submodules = append(ctx.Repository.Submodules, submoduleSummary{
+			Name:   sub.Name,
+			Path:   sub.Path,
+			URL:    sub.URL,
+			Commit: sub.Commit,
+			Status: sub.Status,
+		})
+	}
+
+	ctx.Repository.RecentReflog = append(ctx.Repository.RecentReflog, state.RecentReflog...)
+	ctx.Repository.DescribeTag = state.DescribeTag
+	ctx.Repository.Worktrees = append(ctx.Repository.Worktrees, state.Worktrees...)
+	ctx.Repository.DefaultBranch = state.RepoConfig.DefaultBranch
 
 	ahead, behind := state.LocalBranch.Ahead, state.LocalBranch.Behind
 	if state.UpstreamState != nil {
@@ -687,10 +1032,89 @@ func (b *PromptBuilder) formatMemoryContext(mc MemoryContext) string {
 		}
 		parts = append(parts, "Recently resolved issues: "+strings.Join(recent, "; "))
 	}
+	if len(mc.RecentEvents) > 0 {
+		recent := mc.RecentEvents
+		if len(recent) > 8 {
+			recent = recent[len(recent)-8:]
+		}
+		parts = append(parts, "Recent episodic events: "+strings.Join(recent, "; "))
+	}
+	if len(mc.ArtifactNotes) > 0 {
+		notes := mc.ArtifactNotes
+		if len(notes) > 8 {
+			notes = notes[len(notes)-8:]
+		}
+		parts = append(parts, "Artifact notes: "+strings.Join(notes, "; "))
+	}
+	if len(mc.Episodes) > 0 {
+		episodes := mc.Episodes
+		if len(episodes) > 6 {
+			episodes = episodes[:6]
+		}
+		lines := make([]string, 0, len(episodes))
+		for _, episode := range episodes {
+			label := strings.TrimSpace(firstNonEmptyString(episode.Action, episode.Kind, episode.Surface))
+			line := strings.TrimSpace(label + ": " + episode.Summary)
+			if strings.TrimSpace(episode.CapabilityID) != "" {
+				line += " | capability=" + strings.TrimSpace(episode.CapabilityID)
+			}
+			if strings.TrimSpace(episode.Flow) != "" {
+				line += " | flow=" + strings.TrimSpace(episode.Flow)
+			}
+			if strings.TrimSpace(episode.Operation) != "" {
+				line += " | op=" + strings.TrimSpace(episode.Operation)
+			}
+			if strings.TrimSpace(episode.Result) != "" {
+				line += " [" + strings.TrimSpace(episode.Result) + "]"
+			}
+			lines = append(lines, line)
+		}
+		parts = append(parts, "Episodic memory: "+strings.Join(lines, "; "))
+	}
+	if len(mc.SemanticFacts) > 0 {
+		facts := mc.SemanticFacts
+		if len(facts) > 6 {
+			facts = facts[:6]
+		}
+		lines := make([]string, 0, len(facts))
+		for _, fact := range facts {
+			line := fmt.Sprintf("%s (confidence %.2f, score %.2f)", fact.Fact, fact.Confidence, fact.CurrentScore)
+			if fact.Stale {
+				line += " [stale]"
+			}
+			lines = append(lines, line)
+		}
+		parts = append(parts, "Semantic memory: "+strings.Join(lines, "; "))
+	}
+	if mc.TaskState != nil {
+		task := strings.TrimSpace(mc.TaskState.Goal)
+		if strings.TrimSpace(mc.TaskState.WorkflowID) != "" {
+			task += " | workflow=" + strings.TrimSpace(mc.TaskState.WorkflowID)
+		}
+		if strings.TrimSpace(mc.TaskState.Status) != "" {
+			task += " | status=" + strings.TrimSpace(mc.TaskState.Status)
+		}
+		if len(mc.TaskState.Pending) > 0 {
+			task += " | pending=" + strings.Join(mc.TaskState.Pending, ", ")
+		}
+		if task != "" {
+			parts = append(parts, "Task memory: "+task)
+		}
+	}
 	if len(parts) == 0 {
 		return ""
 	}
 	return "Long-term memory context:\n" + strings.Join(parts, "\n")
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (b *PromptBuilder) formatFileContext(fc *FileContext) string {

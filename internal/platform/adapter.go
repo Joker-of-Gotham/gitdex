@@ -1,6 +1,9 @@
 package platform
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 type Platform int
 
@@ -10,6 +13,32 @@ const (
 	PlatformBitbucket
 	PlatformUnknown
 )
+
+func (p Platform) String() string {
+	switch p {
+	case PlatformGitHub:
+		return "github"
+	case PlatformGitLab:
+		return "gitlab"
+	case PlatformBitbucket:
+		return "bitbucket"
+	default:
+		return "unknown"
+	}
+}
+
+func ParsePlatform(value string) Platform {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "github":
+		return PlatformGitHub
+	case "gitlab":
+		return PlatformGitLab
+	case "bitbucket":
+		return PlatformBitbucket
+	default:
+		return PlatformUnknown
+	}
+}
 
 type PRRequest struct {
 	Title      string

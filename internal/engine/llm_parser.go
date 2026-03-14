@@ -10,10 +10,11 @@ import (
 )
 
 type llmResponseJSON struct {
-	Analysis     string              `json:"analysis"`
-	PlanOverview string              `json:"plan_overview,omitempty"`
-	GoalStatus   string              `json:"goal_status,omitempty"`
-	Suggestions  []llmSuggestionJSON `json:"suggestions"`
+	Analysis         string              `json:"analysis"`
+	PlanOverview     string              `json:"plan_overview,omitempty"`
+	GoalStatus       string              `json:"goal_status,omitempty"`
+	KnowledgeRequest []string            `json:"knowledge_request,omitempty"`
+	Suggestions      []llmSuggestionJSON `json:"suggestions"`
 }
 
 type llmInputJSON struct {
@@ -25,24 +26,34 @@ type llmInputJSON struct {
 }
 
 type llmSuggestionJSON struct {
-	Action        string         `json:"action"`
-	Argv          []string       `json:"argv"`
-	Command       string         `json:"command"`
-	Reason        string         `json:"reason"`
-	Risk          string         `json:"risk"`
-	Interaction   string         `json:"interaction"`
-	Inputs        []llmInputJSON `json:"inputs"`
-	FilePath      string         `json:"file_path,omitempty"`
-	FileContent   string         `json:"file_content,omitempty"`
-	FileOperation string         `json:"file_operation,omitempty"` // "create", "update", "delete", "append"
+	Action          string            `json:"action"`
+	Argv            []string          `json:"argv"`
+	Command         string            `json:"command"`
+	Reason          string            `json:"reason"`
+	Risk            string            `json:"risk"`
+	Interaction     string            `json:"interaction"`
+	Inputs          []llmInputJSON    `json:"inputs"`
+	FilePath        string            `json:"file_path,omitempty"`
+	FileContent     string            `json:"file_content,omitempty"`
+	FileOperation   string            `json:"file_operation,omitempty"` // "create", "update", "delete", "append"
+	CapabilityID    string            `json:"capability_id,omitempty"`
+	Flow            string            `json:"flow,omitempty"`
+	Operation       string            `json:"operation,omitempty"`
+	ResourceID      string            `json:"resource_id,omitempty"`
+	Scope           map[string]string `json:"scope,omitempty"`
+	Query           map[string]string `json:"query,omitempty"`
+	Payload         json.RawMessage   `json:"payload,omitempty"`
+	ValidatePayload json.RawMessage   `json:"validate_payload,omitempty"`
+	RollbackPayload json.RawMessage   `json:"rollback_payload,omitempty"`
 }
 
 type parsedLLMResult struct {
-	analysis     string
-	planOverview string
-	goalStatus   string
-	suggestions  []git.Suggestion
-	rejected     []string
+	analysis         string
+	planOverview     string
+	goalStatus       string
+	knowledgeRequest []string
+	suggestions      []git.Suggestion
+	rejected         []string
 }
 
 func parseLLMResponse(state *status.GitState, text string) (parsedLLMResult, error) {
@@ -51,21 +62,41 @@ func parseLLMResponse(state *status.GitState, text string) (parsedLLMResult, err
 		return parsedLLMResult{}, fmt.Errorf("empty AI response")
 	}
 
-	// Try parsing as-is first
 	result, err := tryParseJSON(state, text)
 	if err == nil {
 		return result, nil
 	}
 
-	// If that fails, try repairing JSON
 	repaired := repairJSON(text)
 	result, err = tryParseJSON(state, repaired)
 	if err == nil {
 		return result, nil
 	}
 
-	// Last resort: try to extract just the suggestions array
-	return tryParseSuggestionsArray(state, text)
+	result, err = tryParseSuggestionsArray(state, text)
+	if err == nil {
+		return result, nil
+	}
+
+	if analysis := extractPlainAnalysis(text); analysis != "" {
+		return parsedLLMResult{analysis: analysis}, nil
+	}
+
+	return parsedLLMResult{}, fmt.Errorf("response is not valid JSON")
+}
+
+func extractPlainAnalysis(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" || len(text) < 20 {
+		return ""
+	}
+	if strings.HasPrefix(text, "{") || strings.HasPrefix(text, "[") {
+		return ""
+	}
+	if len(text) > 1500 {
+		text = text[:1500]
+	}
+	return text
 }
 
 func tryParseJSON(state *status.GitState, text string) (parsedLLMResult, error) {
@@ -76,30 +107,29 @@ func tryParseJSON(state *status.GitState, text string) (parsedLLMResult, error) 
 		candidate := text[firstBrace:]
 		if end := findMatchingBrace(candidate); end > 0 {
 			candidate = candidate[:end+1]
-			var resp llmResponseJSON
-			if err := json.Unmarshal([]byte(candidate), &resp); err == nil {
-				if len(resp.Suggestions) == 0 &&
-					strings.TrimSpace(resp.Analysis) == "" &&
-					strings.TrimSpace(resp.PlanOverview) == "" &&
-					strings.TrimSpace(resp.GoalStatus) == "" {
-					return parsedLLMResult{}, fmt.Errorf("json object does not match response schema")
-				}
-				suggestions, rejected, convErr := convertSuggestions(state, resp.Suggestions)
-				if convErr != nil {
-					return parsedLLMResult{}, convErr
-				}
-				analysis := strings.TrimSpace(resp.Analysis)
-				if analysis == "" {
-					analysis = "AI analysis completed."
-				}
-				return parsedLLMResult{
-					analysis:     analysis,
-					planOverview: strings.TrimSpace(resp.PlanOverview),
-					goalStatus:   strings.TrimSpace(resp.GoalStatus),
-					suggestions:  suggestions,
-					rejected:     rejected,
-				}, nil
+		}
+		var resp llmResponseJSON
+		if err := json.Unmarshal([]byte(candidate), &resp); err == nil {
+			if len(resp.Suggestions) == 0 &&
+				strings.TrimSpace(resp.Analysis) == "" &&
+				strings.TrimSpace(resp.PlanOverview) == "" &&
+				strings.TrimSpace(resp.GoalStatus) == "" &&
+				len(resp.KnowledgeRequest) == 0 {
+				return parsedLLMResult{}, fmt.Errorf("json object does not match response schema")
 			}
+			suggestions, rejected, _ := convertSuggestions(state, resp.Suggestions)
+			analysis := strings.TrimSpace(resp.Analysis)
+			if analysis == "" {
+				analysis = "AI analysis completed."
+			}
+			return parsedLLMResult{
+				analysis:         analysis,
+				planOverview:     strings.TrimSpace(resp.PlanOverview),
+				goalStatus:       strings.TrimSpace(resp.GoalStatus),
+				knowledgeRequest: resp.KnowledgeRequest,
+				suggestions:      suggestions,
+				rejected:         rejected,
+			}, nil
 		}
 	}
 	return parsedLLMResult{}, fmt.Errorf("failed to parse JSON")
