@@ -18,6 +18,7 @@ var (
 
 // Config holds the full application configuration.
 type Config struct {
+	Version    int              `mapstructure:"version" yaml:"version"`
 	Suggestion SuggestionConfig `mapstructure:"suggestion" yaml:"suggestion"`
 	LLM        LLMConfig        `mapstructure:"llm" yaml:"llm"`
 	Sync       SyncConfig       `mapstructure:"sync" yaml:"sync"`
@@ -148,6 +149,7 @@ type MemoryTaskConfig struct {
 }
 
 type AdapterConfig struct {
+	Git       CommandAdapterConfig     `mapstructure:"git" yaml:"git"`
 	GitHub    GitHubAdapterConfig      `mapstructure:"github" yaml:"github"`
 	GitLab    BrowserOnlyAdapterConfig `mapstructure:"gitlab" yaml:"gitlab"`
 	Bitbucket BrowserOnlyAdapterConfig `mapstructure:"bitbucket" yaml:"bitbucket"`
@@ -198,13 +200,19 @@ type I18nConfig struct {
 // > Global (~/.config/gitdex/config.yaml, legacy ~/.config/gitmanual/config.yaml) > Defaults
 func Load() (*Config, error) {
 	v := viper.New()
+	trace := NewLoadTrace()
 
 	setDefaults(v)
+	trace.DefaultsApplied = true
 	bindEnvAliases(v)
 
 	for _, path := range candidateConfigFiles() {
-		if err := mergeConfigFile(v, path); err != nil {
+		merged, err := mergeConfigFile(v, path)
+		if err != nil {
 			return nil, fmt.Errorf("config load: merge %s: %w", path, err)
+		}
+		if merged {
+			trace.MergedFiles = append(trace.MergedFiles, path)
 		}
 	}
 
@@ -212,7 +220,10 @@ func Load() (*Config, error) {
 	if err := v.Unmarshal(&c); err != nil {
 		return nil, fmt.Errorf("config load: unmarshal: %w", err)
 	}
+	migration := Migrate(&c)
 	normalize(&c)
+	trace.Migration = migration
+	trace.EnvOverrides = detectConfigEnvVars()
 
 	if err := Validate(&c); err != nil {
 		return nil, fmt.Errorf("config load: validate: %w", err)
@@ -220,6 +231,7 @@ func Load() (*Config, error) {
 
 	cfgMu.Lock()
 	cfg = &c
+	lastLoadTrace = trace
 	cfgMu.Unlock()
 	return &c, nil
 }
@@ -238,20 +250,23 @@ func candidateConfigFiles() []string {
 	return files
 }
 
-func mergeConfigFile(v *viper.Viper, path string) error {
+func mergeConfigFile(v *viper.Viper, path string) (bool, error) {
 	if strings.TrimSpace(path) == "" {
-		return nil
+		return false, nil
 	}
 	if _, err := os.Stat(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil
+			return false, nil
 		}
-		return err
+		return false, err
 	}
 
 	v.SetConfigFile(path)
 	v.SetConfigType("yaml")
-	return v.MergeInConfig()
+	if err := v.MergeInConfig(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // Get returns the loaded config. Must call Load() or Set() first.
@@ -272,6 +287,9 @@ func Set(c *Config) {
 func normalize(c *Config) {
 	if c == nil {
 		return
+	}
+	if c.Version <= 0 {
+		c.Version = CurrentConfigVersion
 	}
 	c.Suggestion.Mode = strings.TrimSpace(c.Suggestion.Mode)
 	c.Suggestion.Language = strings.TrimSpace(c.Suggestion.Language)
@@ -323,7 +341,7 @@ func normalize(c *Config) {
 		c.LLM.Primary.APIKeyEnv = c.LLM.APIKeyEnv
 	}
 	if strings.TrimSpace(c.LLM.Primary.Model) == "" && RoleProvider(c.LLM.Primary) == "ollama" {
-		c.LLM.Primary.Model = "qwen2.5:3b"
+		c.LLM.Primary.Model = "" // will be auto-detected by app startup
 	}
 	if !c.LLM.Primary.Enabled {
 		c.LLM.Primary.Enabled = true
@@ -362,7 +380,7 @@ func normalize(c *Config) {
 		c.I18n.Language = "auto"
 	}
 	if c.Theme.Name == "" {
-		c.Theme.Name = "dark"
+		c.Theme.Name = "catppuccin"
 	}
 	if c.Automation.MonitorInterval < 0 {
 		c.Automation.MonitorInterval = 0
@@ -403,6 +421,9 @@ func normalize(c *Config) {
 	}
 	if c.Adapters.GitHub.GH.Binary == "" {
 		c.Adapters.GitHub.GH.Binary = "gh"
+	}
+	if c.Adapters.Git.Binary == "" {
+		c.Adapters.Git.Binary = "git"
 	}
 	if c.Adapters.GitHub.Browser.Driver == "" {
 		c.Adapters.GitHub.Browser.Driver = "default"
@@ -457,6 +478,8 @@ func bindEnvAliases(v *viper.Viper) {
 		"platform.github_token":                                 {"GITDEX_PLATFORM_GITHUB_TOKEN", "GITMANUAL_PLATFORM_GITHUB_TOKEN"},
 		"platform.gitlab_token":                                 {"GITDEX_PLATFORM_GITLAB_TOKEN", "GITMANUAL_PLATFORM_GITLAB_TOKEN"},
 		"platform.bitbucket_token":                              {"GITDEX_PLATFORM_BITBUCKET_TOKEN", "GITMANUAL_PLATFORM_BITBUCKET_TOKEN"},
+		"adapters.git.enabled":                                  {"GITDEX_ADAPTERS_GIT_ENABLED", "GITMANUAL_ADAPTERS_GIT_ENABLED"},
+		"adapters.git.binary":                                   {"GITDEX_ADAPTERS_GIT_BINARY", "GITMANUAL_ADAPTERS_GIT_BINARY"},
 		"adapters.github.gh.enabled":                            {"GITDEX_ADAPTERS_GITHUB_GH_ENABLED", "GITMANUAL_ADAPTERS_GITHUB_GH_ENABLED"},
 		"adapters.github.gh.binary":                             {"GITDEX_ADAPTERS_GITHUB_GH_BINARY", "GITMANUAL_ADAPTERS_GITHUB_GH_BINARY"},
 		"adapters.github.browser.enabled":                       {"GITDEX_ADAPTERS_GITHUB_BROWSER_ENABLED", "GITMANUAL_ADAPTERS_GITHUB_BROWSER_ENABLED"},

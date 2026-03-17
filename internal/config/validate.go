@@ -24,9 +24,12 @@ func Validate(cfg *Config) error {
 		return fmt.Errorf("suggestion.language must be one of auto, en, zh, ja; got %q", cfg.Suggestion.Language)
 	}
 
-	validThemes := map[string]bool{"dark": true, "light": true, "high-contrast": true}
+	validThemes := map[string]bool{
+		"catppuccin": true, "dracula": true, "tokyonight": true,
+		"gruvbox": true, "nord": true, "dark": true, "light": true,
+	}
 	if !validThemes[strings.ToLower(cfg.Theme.Name)] {
-		return fmt.Errorf("theme.name must be one of dark, light, high-contrast; got %q", cfg.Theme.Name)
+		return fmt.Errorf("theme.name must be one of catppuccin, dracula, tokyonight, gruvbox, nord, dark, light; got %q", cfg.Theme.Name)
 	}
 	i18nLang := strings.ToLower(strings.TrimSpace(cfg.I18n.Language))
 	if i18nLang == "" {
@@ -146,6 +149,9 @@ func Validate(cfg *Config) error {
 	}
 	if cfg.Adapters.GitHub.GH.Enabled && strings.TrimSpace(cfg.Adapters.GitHub.GH.Binary) == "" {
 		return fmt.Errorf("adapters.github.gh.binary must be set when adapters.github.gh.enabled=true")
+	}
+	if cfg.Adapters.Git.Enabled && strings.TrimSpace(cfg.Adapters.Git.Binary) == "" {
+		return fmt.Errorf("adapters.git.binary must be set when adapters.git.enabled=true")
 	}
 	if strings.TrimSpace(cfg.Adapters.GitHub.Browser.Driver) == "" {
 		return fmt.Errorf("adapters.github.browser.driver must not be empty")

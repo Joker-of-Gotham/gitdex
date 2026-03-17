@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gitdex.dev/schema/gitdexrc-v3.json",
+  "title": "GitDex Config",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "suggestion": {
+      "type": "object",
+      "properties": {
+        "mode": { "enum": ["zen", "full", "manual"] },
+        "language": { "enum": ["auto", "en", "zh", "ja"] }
+      }
+    },
+    "llm": {
+      "type": "object",
+      "properties": {
+        "provider": { "enum": ["ollama", "openai", "deepseek"] },
+        "model": { "type": "string" },
+        "endpoint": { "type": "string" },
+        "api_key": { "type": "string" },
+        "api_key_env": { "type": "string" },
+        "context_length": { "type": "integer", "minimum": 0 },
+        "request_timeout": { "type": "integer", "minimum": 0 },
+        "primary": {
+          "type": "object",
+          "properties": {
+            "provider": { "enum": ["ollama", "openai", "deepseek"] },
+            "model": { "type": "string" },
+            "endpoint": { "type": "string" },
+            "api_key": { "type": "string" },
+            "api_key_env": { "type": "string" },
+            "enabled": { "type": "boolean" }
+          }
+        },
+        "secondary": {
+          "type": "object",
+          "properties": {
+            "provider": { "enum": ["ollama", "openai", "deepseek"] },
+            "model": { "type": "string" },
+            "endpoint": { "type": "string" },
+            "api_key": { "type": "string" },
+            "api_key_env": { "type": "string" },
+            "enabled": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "automation": {
+      "type": "object",
+      "properties": {
+        "mode": { "enum": ["manual", "auto", "cruise"] },
+        "monitor_interval": { "type": "integer", "minimum": 0 },
+        "max_auto_steps": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "adapters": {
+      "type": "object",
+      "properties": {
+        "git": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "binary": { "type": "string" }
+          }
+        },
+        "github": {
+          "type": "object",
+          "properties": {
+            "gh": {
+              "type": "object",
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "binary": { "type": "string" }
+              }
+            },
+            "browser": {
+              "type": "object",
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "driver": { "type": "string" }
+              }
+            }
+          }
+        },
+        "gitlab": {
+          "type": "object",
+          "properties": {
+            "browser": {
+              "type": "object",
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "driver": { "type": "string" }
+              }
+            }
+          }
+        },
+        "bitbucket": {
+          "type": "object",
+          "properties": {
+            "browser": {
+              "type": "object",
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "driver": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "theme": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" }
+      }
+    },
+    "i18n": {
+      "type": "object",
+      "properties": {
+        "language": { "enum": ["auto", "en", "zh", "ja"] }
+      }
+    }
+  }
+}

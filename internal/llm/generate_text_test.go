@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"fmt"
 	"testing"
 )
 
@@ -52,5 +53,39 @@ func TestGenerateTextAggregatesStream(t *testing.T) {
 	}
 	if resp.Text != "hello world" {
 		t.Fatalf("unexpected text: %q", resp.Text)
+	}
+}
+
+func TestGenerateText_FatalStreamError_DoesNotFallback(t *testing.T) {
+	_, err := GenerateText(context.Background(), stubProvider{
+		resp:      &GenerateResponse{Text: "should not reach"},
+		streamErr: fmt.Errorf("ollama: model \"bad\" not found (404)"),
+	}, GenerateRequest{})
+	if err == nil {
+		t.Fatal("expected error for fatal stream error")
+	}
+	if !isFatalProviderError(err) {
+		t.Fatalf("expected fatal error, got: %v", err)
+	}
+}
+
+func TestIsFatalProviderError(t *testing.T) {
+	cases := []struct {
+		msg   string
+		fatal bool
+	}{
+		{"ollama: model not found (404)", true},
+		{"ollama: chat failed: status 404", true},
+		{"openai: status 401: unauthorized", true},
+		{"openai: status 403: forbidden", true},
+		{"openai: missing API key", true},
+		{"ollama: request failed: connection refused", false},
+		{"context deadline exceeded", false},
+	}
+	for _, tc := range cases {
+		got := isFatalProviderError(fmt.Errorf("%s", tc.msg))
+		if got != tc.fatal {
+			t.Errorf("isFatalProviderError(%q) = %v, want %v", tc.msg, got, tc.fatal)
+		}
 	}
 }

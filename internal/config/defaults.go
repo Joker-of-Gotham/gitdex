@@ -5,27 +5,28 @@ import "github.com/spf13/viper"
 // DefaultConfig returns a config with default values.
 func DefaultConfig() *Config {
 	return &Config{
+		Version:    CurrentConfigVersion,
 		Suggestion: SuggestionConfig{Mode: "zen", Language: "auto"},
 		LLM: LLMConfig{
-			Provider:       "ollama",
-			Model:          "qwen2.5:3b",
-			Endpoint:       "http://localhost:11434",
+			Provider:       DefaultProvider,
+			Model:          DefaultModel,
+			Endpoint:       DefaultOllamaEndpoint,
 			APIKey:         "",
 			APIKeyEnv:      "",
-			ContextLength:  0, // 0 = auto-detect from model metadata
-			RequestTimeout: 0,
+			ContextLength:  0,   // 0 = auto-detect from model metadata
+			RequestTimeout: 300, // 5 minutes default for LLM generation
 			Primary: ModelConfig{
-				Provider:  "ollama",
-				Model:     "qwen2.5:3b",
-				Endpoint:  "http://localhost:11434",
+				Provider:  DefaultProvider,
+				Model:     DefaultModel,
+				Endpoint:  DefaultOllamaEndpoint,
 				APIKey:    "",
 				APIKeyEnv: "",
 				Enabled:   true,
 			},
 			Secondary: ModelConfig{
-				Provider:  "ollama",
+				Provider:  DefaultProvider,
 				Model:     "",
-				Endpoint:  "http://localhost:11434",
+				Endpoint:  DefaultOllamaEndpoint,
 				APIKey:    "",
 				APIKeyEnv: "",
 				Enabled:   false,
@@ -87,6 +88,10 @@ func DefaultConfig() *Config {
 		},
 		Platform: PlatformConfig{},
 		Adapters: AdapterConfig{
+			Git: CommandAdapterConfig{
+				Enabled: true,
+				Binary:  "git",
+			},
 			GitHub: GitHubAdapterConfig{
 				GH: CommandAdapterConfig{
 					Enabled: true,
@@ -111,37 +116,38 @@ func DefaultConfig() *Config {
 			},
 		},
 		Reports: ReportsConfig{},
-		Theme:   ThemeConfig{Name: "dark"},
+		Theme:   ThemeConfig{Name: "catppuccin"},
 		I18n:    I18nConfig{Language: "auto"},
 	}
 }
 
 func setDefaults(v *viper.Viper) {
+	v.SetDefault("version", CurrentConfigVersion)
 	v.SetDefault("suggestion.mode", "zen")
 	v.SetDefault("suggestion.language", "auto")
 	v.SetDefault("automation.mode", AutomationModeManual)
-	v.SetDefault("llm.provider", "ollama")
-	v.SetDefault("llm.model", "qwen2.5:3b")
-	v.SetDefault("llm.endpoint", "http://localhost:11434")
+	v.SetDefault("llm.provider", DefaultProvider)
+	v.SetDefault("llm.model", DefaultModel)
+	v.SetDefault("llm.endpoint", DefaultOllamaEndpoint)
 	v.SetDefault("llm.api_key", "")
 	v.SetDefault("llm.api_key_env", "")
 	v.SetDefault("llm.context_length", 0)
-	v.SetDefault("llm.request_timeout", 0)
-	v.SetDefault("llm.primary.provider", "ollama")
-	v.SetDefault("llm.primary.model", "qwen2.5:3b")
-	v.SetDefault("llm.primary.endpoint", "http://localhost:11434")
+	v.SetDefault("llm.request_timeout", 300)
+	v.SetDefault("llm.primary.provider", DefaultProvider)
+	v.SetDefault("llm.primary.model", DefaultModel)
+	v.SetDefault("llm.primary.endpoint", DefaultOllamaEndpoint)
 	v.SetDefault("llm.primary.api_key", "")
 	v.SetDefault("llm.primary.api_key_env", "")
 	v.SetDefault("llm.primary.enabled", true)
-	v.SetDefault("llm.secondary.provider", "ollama")
+	v.SetDefault("llm.secondary.provider", DefaultProvider)
 	v.SetDefault("llm.secondary.model", "")
-	v.SetDefault("llm.secondary.endpoint", "http://localhost:11434")
+	v.SetDefault("llm.secondary.endpoint", DefaultOllamaEndpoint)
 	v.SetDefault("llm.secondary.api_key", "")
 	v.SetDefault("llm.secondary.api_key_env", "")
 	v.SetDefault("llm.secondary.enabled", false)
 	v.SetDefault("sync.auto_fetch_interval", 300)
 	v.SetDefault("automation.enabled", true)
-	v.SetDefault("automation.monitor_interval", 300)
+	v.SetDefault("automation.monitor_interval", 900)
 	v.SetDefault("automation.auto_analyze", true)
 	v.SetDefault("automation.unattended", false)
 	v.SetDefault("automation.auto_accept_safe", false)
@@ -173,6 +179,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("platform.github_token", "")
 	v.SetDefault("platform.gitlab_token", "")
 	v.SetDefault("platform.bitbucket_token", "")
+	v.SetDefault("adapters.git.enabled", true)
+	v.SetDefault("adapters.git.binary", "git")
 	v.SetDefault("adapters.github.gh.enabled", true)
 	v.SetDefault("adapters.github.gh.binary", "gh")
 	v.SetDefault("adapters.github.browser.enabled", false)
@@ -182,6 +190,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("adapters.bitbucket.browser.enabled", false)
 	v.SetDefault("adapters.bitbucket.browser.driver", "default")
 	v.SetDefault("reports.export_dir", "")
-	v.SetDefault("theme.name", "dark")
+	v.SetDefault("theme.name", "catppuccin")
 	v.SetDefault("i18n.language", "auto")
 }

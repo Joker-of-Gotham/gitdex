@@ -3,1528 +3,1546 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/mattn/go-runewidth"
 
-	"github.com/Joker-of-Gotham/gitdex/internal/git"
-	"github.com/Joker-of-Gotham/gitdex/internal/git/status"
-	"github.com/Joker-of-Gotham/gitdex/internal/i18n"
-	"github.com/Joker-of-Gotham/gitdex/internal/llm"
-	"github.com/Joker-of-Gotham/gitdex/internal/tui/components"
+	"github.com/Joker-of-Gotham/gitdex/internal/dotgitdex"
+	"github.com/Joker-of-Gotham/gitdex/internal/observability"
 	"github.com/Joker-of-Gotham/gitdex/internal/tui/theme"
 )
 
-func (m Model) View() tea.View {
-	var v tea.View
-	if !m.ready {
-		v = tea.NewView(i18n.T("ui.loading"))
-	} else {
-		switch m.screen {
-		case screenLanguageSelect:
-			v = tea.NewView(m.renderLanguageSelectScreen())
-		case screenModelSelect:
-			v = tea.NewView(m.renderModelSelectScreen())
-		case screenProviderConfig:
-			v = tea.NewView(m.renderProviderConfigScreen())
-		case screenAutomationConfig:
-			v = tea.NewView(m.renderAutomationConfigScreenV2())
-		case screenInput:
-			v = tea.NewView(m.renderInputScreen())
-		case screenGoalInput:
-			v = tea.NewView(m.renderGoalInputScreen())
-		case screenWorkflowSelect:
-			v = tea.NewView(m.renderWorkflowSelectScreen())
-		case screenPlatformEdit:
-			v = tea.NewView(m.renderPlatformEditScreen())
-		case screenFileEdit:
-			v = tea.NewView(m.renderFileEditScreen())
-		default:
-			header := m.renderHeader()
-			statusBar := m.renderStatusBar()
-			usedHeight := 2
-			contentHeight := m.height - usedHeight
-			if contentHeight < 1 {
-				contentHeight = 1
-			}
-			content, regions, clickRegions := m.renderMainLayoutWithRegions(contentHeight)
-			v = tea.NewView(header + "\n" + content + "\n" + statusBar)
-			v.MouseMode = tea.MouseModeCellMotion
-			v.OnMouse = func(msg tea.MouseMsg) tea.Cmd {
-				mouse := msg.Mouse()
-				if _, ok := msg.(tea.MouseClickMsg); ok {
-					for _, region := range clickRegions {
-						if !region.contains(mouse.X, mouse.Y-1) {
-							continue
-						}
-						return func() tea.Msg {
-							return uiClickMsg{action: region.action, index: region.index}
-						}
-					}
-				}
-				for _, region := range regions {
-					if !region.contains(mouse.X, mouse.Y-1) {
-						continue
-					}
-					switch event := msg.(type) {
-					case tea.MouseWheelMsg:
-						delta := 0
-						switch event.Mouse().Button {
-						case tea.MouseWheelDown:
-							delta = 3
-						case tea.MouseWheelUp:
-							delta = -3
-						}
-						if delta != 0 {
-							return func() tea.Msg {
-								return paneScrollMsg{pane: region.pane, delta: delta}
-							}
-						}
-					case tea.MouseClickMsg:
-						if region.pane == scrollPaneLog {
-							return func() tea.Msg {
-								return uiClickMsg{action: "toggle_log"}
-							}
-						}
-						return func() tea.Msg {
-							return paneFocusMsg{pane: region.pane}
-						}
-					}
-				}
-				return nil
-			}
+// ── Theme-aware style helpers ──────────────────────────────────────────
+// All styles are computed from theme.Current so the entire TUI
+// recolors uniformly when the user switches themes.
+
+func ts() *theme.Theme {
+	if theme.Current == nil {
+		theme.Init("catppuccin")
+	}
+	return theme.Current
+}
+
+func s(hex string) lipgloss.Style { return lipgloss.NewStyle().Foreground(lipgloss.Color(hex)) }
+func sb(hex string) lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(hex)).Bold(true)
+}
+
+func titleStyle() lipgloss.Style         { return sb(ts().Primary) }
+func subtitleStyle() lipgloss.Style      { return s(ts().TextMuted) }
+func modeManual() lipgloss.Style         { return sb(ts().Success) }
+func modeAuto() lipgloss.Style           { return sb(ts().Warning) }
+func modeCruise() lipgloss.Style         { return sb(ts().Danger) }
+func flowStyle() lipgloss.Style          { return s(ts().Accent) }
+func successStyle() lipgloss.Style       { return s(ts().Success) }
+func successBoldStyle() lipgloss.Style   { return sb(ts().Success) }
+func warningStyle() lipgloss.Style       { return s(ts().Warning) }
+func warningBoldStyle() lipgloss.Style   { return sb(ts().Warning) }
+func dangerStyle() lipgloss.Style        { return s(ts().Danger) }
+func dangerBoldStyle() lipgloss.Style    { return sb(ts().Danger) }
+func infoStyle() lipgloss.Style          { return s(ts().Info) }
+func accentStyle() lipgloss.Style        { return s(ts().Accent) }
+func commandStyle() lipgloss.Style       { return s(ts().Secondary) }
+func tsTimeStyle() lipgloss.Style        { return s(ts().Accent) }
+func keyStyle() lipgloss.Style           { return sb(ts().Warning) }
+func valueStyle() lipgloss.Style         { return s(ts().Text) }
+func mutedStyle() lipgloss.Style         { return s(ts().TextMuted) }
+func dimStyle() lipgloss.Style           { return s(ts().TextMuted) }
+func sectionHeaderStyle() lipgloss.Style { return sb(ts().Text) }
+func focusedHeaderStyle() lipgloss.Style { return sb(ts().Primary) }
+func borderStyle() lipgloss.Style        { return s(ts().Border) }
+func panelBorderStyle() lipgloss.Style   { return s(ts().Secondary) }
+func activeInputStyle() lipgloss.Style   { return sb(ts().Accent) }
+func inactiveInputStyle() lipgloss.Style { return s(ts().TextMuted) }
+func configActiveStyle() lipgloss.Style  { return sb(ts().Accent) }
+func configItemStyle() lipgloss.Style    { return s(ts().Text) }
+func configCheckStyle() lipgloss.Style   { return sb(ts().Success) }
+func configHelpStyle() lipgloss.Style    { return s(ts().TextMuted) }
+func cursorStyle() lipgloss.Style        { return sb(ts().Warning) }
+
+// ── i18n labels ───────────────────────────────────────────────────────
+
+var configTexts = map[string]map[string]string{
+	"config_title":          {"en": "Configuration", "zh": "配置", "ja": "設定"},
+	"config_model":          {"en": "Model Configuration", "zh": "模型配置", "ja": "モデル設定"},
+	"config_mode":           {"en": "Mode Settings", "zh": "运行模式", "ja": "動作モード"},
+	"config_lang":           {"en": "Language", "zh": "语言设置", "ja": "言語設定"},
+	"config_theme":          {"en": "Theme", "zh": "主题设置", "ja": "テーマ"},
+	"mode_manual":           {"en": "Manual", "zh": "手动", "ja": "手動"},
+	"mode_auto":             {"en": "Auto", "zh": "自动", "ja": "自動"},
+	"mode_cruise":           {"en": "Cruise", "zh": "巡航", "ja": "クルーズ"},
+	"cruise_interval_title": {"en": "Cruise Patrol Interval", "zh": "巡航巡查间隔", "ja": "クルーズ巡回間隔"},
+	"cruise_interval_label": {"en": "Interval:", "zh": "间隔:", "ja": "間隔:"},
+	"cruise_interval_desc":  {"en": "Time between cruise patrol scans (in seconds, min 60)", "zh": "巡航模式定期巡查的时间间隔（秒，最小60）", "ja": "クルーズモードの巡回間隔（秒、最小60）"},
+	"mode_manual_desc":      {"en": "Review each suggestion with /run accept or /run all", "zh": "使用 /run accept 或 /run all 逐条确认", "ja": "/run accept または /run all で確認"},
+	"mode_auto_desc":        {"en": "Fully automatic analysis-suggest-execute loop", "zh": "全自动 分析→建议→执行 循环", "ja": "全自動 分析→提案→実行 ループ"},
+	"mode_cruise_desc":      {"en": "Auto + periodic monitoring and self-check", "zh": "自动 + 定时巡检和自主检查", "ja": "自動 + 定期監視と自己チェック"},
+	"back":                  {"en": "Back", "zh": "返回", "ja": "戻る"},
+	"navigate":              {"en": "Navigate", "zh": "导航", "ja": "操作"},
+	"select":                {"en": "Select", "zh": "选择", "ja": "選択"},
+	"no_goal":               {"en": "No active goal", "zh": "无目标", "ja": "目標なし"},
+	"dark":                  {"en": "Dark", "zh": "暗色", "ja": "ダーク"},
+	"light":                 {"en": "Light", "zh": "亮色", "ja": "ライト"},
+	"save":                  {"en": "Save", "zh": "保存", "ja": "保存"},
+	"cancel":                {"en": "Cancel", "zh": "取消", "ja": "キャンセル"},
+}
+
+func configText(key, lang string) string {
+	if m, ok := configTexts[key]; ok {
+		if v, ok := m[lang]; ok {
+			return v
+		}
+		if v, ok := m["en"]; ok {
+			return v
 		}
 	}
+	return key
+}
+
+// ── Layout geometry ───────────────────────────────────────────────────
+
+type layoutGeo struct {
+	headerH, inputH, contentH int
+	leftW, rightW             int
+	gitH, goalH, logH         int
+}
+
+func (m Model) calcLayout() layoutGeo {
+	w, h := m.width, m.height
+	if w <= 0 {
+		w = 80
+	}
+	if h <= 0 {
+		h = 24
+	}
+	tok := layoutTokensForWidth(w)
+	headerH := tok.headerH
+	inputH := tok.inputH
+	contentH := h - headerH - inputH
+	if contentH < tok.minContentH {
+		contentH = tok.minContentH
+	}
+	leftW := w * tok.leftRatioPct / 100
+	if leftW < tok.minLeftW {
+		leftW = tok.minLeftW
+	}
+	rightW := w - leftW - 1
+	if rightW < tok.minRightW {
+		rightW = tok.minRightW
+	}
+	avail := contentH - 2
+	if avail < tok.minPanelH*3 {
+		avail = tok.minPanelH * 3
+	}
+	gitH := avail * tok.gitRatioPct / 100
+	if gitH < tok.minPanelH {
+		gitH = tok.minPanelH
+	}
+	goalH := avail * tok.goalRatioPct / 100
+	if goalH < tok.minPanelH {
+		goalH = tok.minPanelH
+	}
+	logH := avail - gitH - goalH
+	if logH < tok.minPanelH {
+		logH = tok.minPanelH
+	}
+	return layoutGeo{headerH, inputH, contentH, leftW, rightW, gitH, goalH, logH}
+}
+
+// ── View entry ────────────────────────────────────────────────────────
+
+func (m Model) View() tea.View {
+	if !m.ready {
+		return tea.NewView("Initializing Gitdex...")
+	}
+	var content string
+	switch m.page {
+	case PageConfig, PageConfigModel, PageConfigMode, PageConfigLang, PageConfigTheme:
+		content = m.renderConfigView()
+	default:
+		content = m.renderMainView()
+	}
+	v := tea.NewView(content)
 	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
 	return v
 }
 
-func (m Model) renderLanguageSelectScreen() string {
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("99")).
-		MarginBottom(1)
-	subtitleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241")).
-		MarginBottom(1)
-	activeStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("99")).
-		Background(lipgloss.Color("236")).
-		PaddingLeft(1).
-		PaddingRight(1)
-	normalStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("252")).
-		PaddingLeft(1).
-		PaddingRight(1)
-	detailStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+// ── Config pages ──────────────────────────────────────────────────────
 
-	title := i18n.T("language_select.title")
-	if m.startupInfo.FirstRun {
-		title = i18n.T("language_select.first_run_title")
+func (m Model) renderConfigView() string {
+	w, h := m.width, m.height
+	if w <= 0 {
+		w = 80
+	}
+	if h <= 0 {
+		h = 24
+	}
+	header := m.renderConfigHeader(w)
+	divider := borderStyle().Render(strings.Repeat("─", w))
+
+	var body string
+	switch m.page {
+	case PageConfigModel:
+		body = m.renderConfigModelPage(w)
+	case PageConfigMode:
+		body = m.renderConfigModePage(w)
+	case PageConfigLang:
+		body = m.renderConfigLangPage(w)
+	case PageConfigTheme:
+		body = m.renderConfigThemePage(w)
+	default:
+		body = m.renderConfigMainPage(w)
 	}
 
-	var b strings.Builder
-	b.WriteString(titleStyle.Render(title))
-	b.WriteString("\n")
-	b.WriteString(subtitleStyle.Render(i18n.T("language_select.hint")))
-	b.WriteString("\n\n")
-
-	for i, option := range languageOptions() {
-		cursor := "  "
-		style := normalStyle
-		if i == m.languageCursor {
-			cursor = "> "
-			style = activeStyle
-		}
-		b.WriteString(cursor + style.Render(option.Label) + "\n")
+	bodyH := h - 3
+	if bodyH < 3 {
+		bodyH = 3
 	}
-
-	b.WriteString("\n")
-	b.WriteString(detailStyle.Render(fmt.Sprintf(i18n.T("language_select.current"), m.currentLanguageOptionLabel())))
-	b.WriteString("\n")
-	b.WriteString(detailStyle.Render(fmt.Sprintf(i18n.T("language_select.system"), m.startupInfo.SystemLang)))
-
-	return m.padContent(b.String(), m.height)
+	bodyLines := strings.Split(body, "\n")
+	scrollBody := applyPanelScroll(bodyLines, m.panelScrolls[FocusLeft], w, bodyH)
+	return header + "\n" + divider + "\n" + scrollBody
 }
 
-func (m Model) renderModelSelectScreen() string {
-	if m.modelSelectMode == modelSelectProviders {
-		return m.renderProviderSelectScreen()
+func (m Model) renderConfigHeader(w int) string {
+	left := titleStyle().Render(" Gitdex") + " " + accentStyle().Render("◆ "+configText("config_title", m.language))
+	sub := ""
+	switch m.page {
+	case PageConfigModel:
+		sub = " / " + configText("config_model", m.language)
+	case PageConfigMode:
+		sub = " / " + configText("config_mode", m.language)
+	case PageConfigLang:
+		sub = " / " + configText("config_lang", m.language)
+	case PageConfigTheme:
+		sub = " / " + configText("config_theme", m.language)
 	}
-
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("99")).
-		MarginBottom(1)
-	subtitleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241")).
-		MarginBottom(1)
-	activeStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("99")).
-		Background(lipgloss.Color("236")).
-		PaddingLeft(1).
-		PaddingRight(1)
-	selectedStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("42")).
-		PaddingLeft(1).
-		PaddingRight(1)
-	normalStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("252")).
-		PaddingLeft(1).
-		PaddingRight(1)
-	detailStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	selectedMetaStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("42")).Bold(true)
-
-	title := i18n.T("model_select.local_title")
-	hint := i18n.T("model_select.local_hint")
-	if m.modelSelectPhase == selectSecondary {
-		title = i18n.T("model_select.local_secondary_title")
-		hint = i18n.T("model_select.local_secondary_hint")
+	if sub != "" {
+		left += subtitleStyle().Render(sub)
 	}
-
-	var b strings.Builder
-	b.WriteString(titleStyle.Render(title))
-	b.WriteString("\n")
-	b.WriteString(subtitleStyle.Render(hint))
-	b.WriteString("\n\n")
-
-	currentProvider := m.primaryProvider
-	if m.modelSelectPhase == selectSecondary && strings.TrimSpace(m.secondaryProvider) != "" {
-		currentProvider = m.secondaryProvider
+	right := configHelpStyle().Render("Esc:" + configText("back", m.language))
+	pad := w - lipgloss.Width(left) - lipgloss.Width(right)
+	if pad < 1 {
+		pad = 1
 	}
-	if strings.TrimSpace(m.modelListProvider) != "" {
-		currentProvider = m.modelListProvider
-	}
-	if currentProvider == "" {
-		currentProvider = "ollama"
-	}
-	b.WriteString(detailStyle.Render(fmt.Sprintf("  provider: %s  (p: configure provider/API)", currentProvider)))
-	b.WriteString("\n\n")
+	return left + strings.Repeat(" ", pad) + right
+}
 
-	models := m.currentSelectableModels()
-	selectedModel := m.roleModel(m.modelSelectPhase)
-	for i, model := range models {
-		cursor := "  "
-		style := normalStyle
-		if i == m.modelCursor {
-			cursor = "> "
-			style = activeStyle
-		} else if strings.EqualFold(strings.TrimSpace(model.Name), selectedModel) {
-			style = selectedStyle
-		}
-
-		name := style.Render(model.Name)
-		var details []string
-		if model.ParamSize != "" {
-			details = append(details, model.ParamSize)
-		}
-		if model.Family != "" {
-			details = append(details, model.Family)
-		}
-		if model.Size > 0 {
-			details = append(details, humanSize(model.Size))
-		}
-		if model.Quant != "" {
-			details = append(details, model.Quant)
-		}
-
-		detailStr := ""
-		if len(details) > 0 {
-			detailStr = detailStyle.Render("  " + strings.Join(details, " | "))
-		}
-		selectedMark := ""
-		if strings.EqualFold(strings.TrimSpace(model.Name), selectedModel) {
-			selectedMark = " " + selectedMetaStyle.Render("[selected]")
-		}
-		b.WriteString(cursor + name + selectedMark + detailStr + "\n")
-	}
-
-	footerStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241")).
-		MarginTop(1)
-	b.WriteString("\n")
-	if len(models) == 0 {
-		b.WriteString(footerStyle.Render("  " + i18n.T("provider_config.empty_models")))
+func (m Model) renderConfigMainPage(w int) string {
+	lang := m.language
+	helperSum := m.configInfo.Helper.Provider + " / " + m.configInfo.Helper.Model
+	plannerSum := m.configInfo.Planner.Provider
+	if m.configInfo.Planner.Model != "" {
+		plannerSum += " / " + m.configInfo.Planner.Model
 	} else {
-		b.WriteString(footerStyle.Render(fmt.Sprintf("  "+i18n.T("model_select.found"), len(models))))
+		plannerSum += " (same as helper)"
 	}
-
-	return m.padContent(b.String(), m.height)
+	modeDisplay := m.mode
+	if m.mode == "cruise" {
+		modeDisplay += fmt.Sprintf("  (%s)", formatDuration(m.cruiseIntervalS))
+	}
+	items := []struct {
+		label, value string
+	}{
+		{configText("config_model", lang), "Helper: " + helperSum + "  |  Planner: " + plannerSum},
+		{configText("config_mode", lang), modeDisplay},
+		{configText("config_lang", lang), m.configInfo.Language},
+		{configText("config_theme", lang), m.configInfo.Theme},
+	}
+	var lines []string
+	lines = append(lines, "")
+	for i, item := range items {
+		prefix := "    "
+		style := configItemStyle()
+		if i == m.configMenuIdx {
+			prefix = "  " + accentStyle().Render(">") + " "
+			style = configActiveStyle()
+		}
+		lines = append(lines, prefix+style.Render(item.label)+mutedStyle().Render("  "+item.value))
+	}
+	lines = append(lines, "")
+	lines = append(lines, configHelpStyle().Render(fmt.Sprintf("  ↑↓ %s   Enter: %s   Esc: %s",
+		configText("navigate", lang), configText("select", lang), configText("back", lang))))
+	return strings.Join(lines, "\n")
 }
 
-func (m Model) renderProviderSelectScreen() string {
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7BD8FF"))
-	subStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#97A9B8"))
-	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F2C572")).Bold(true)
-	bodyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#DCE7EF"))
-	metaStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#7A8B99"))
-	activeBox := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#6FC3DF")).
-		Padding(0, 1).
-		Width(maxInt(28, minInt(84, m.width-8)))
-	selectedBox := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#57D48A")).
-		Padding(0, 1).
-		Width(maxInt(28, minInt(84, m.width-8)))
-	idleBox := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#31556F")).
-		Padding(0, 1).
-		Width(maxInt(28, minInt(84, m.width-8)))
+// ── Model config page (old TUI style: bordered boxes + chips) ─────────
 
-	roleLabel := i18n.T("model_select.role_primary")
-	if m.modelSelectPhase == selectSecondary {
-		roleLabel = i18n.T("model_select.role_secondary")
-	}
+func (m Model) renderConfigModelPage(w int) string {
+	boxW := clampInt(w-8, 24, 72)
+
+	t := ts()
+	boxActive := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(t.BorderFoc)).
+		Padding(0, 1).Width(boxW)
+	boxIdle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(t.Border)).
+		Padding(0, 1).Width(boxW)
+	choiceOn := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(t.BgPanel)).
+		Background(lipgloss.Color(t.Warning)).
+		Bold(true).Padding(0, 1)
+	choiceOff := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(t.Text)).
+		Background(lipgloss.Color(t.Border)).
+		Padding(0, 1)
+
+	fi := m.configDraft.FieldIdx
+	provID := draftProviders[m.configDraft.ProviderIdx]
+	meta := providerMetaFor(provID)
 
 	var b strings.Builder
-	b.WriteString(titleStyle.Render(fmt.Sprintf(i18n.T("model_select.setup_title"), roleLabel)))
 	b.WriteString("\n")
-	b.WriteString(subStyle.Render(i18n.T("model_select.setup_hint")))
-	b.WriteString("\n\n")
 
-	for i, spec := range llm.ProviderSpecs() {
-		lines := []string{
-			labelStyle.Render(spec.Label + "  [" + spec.ID + "]"),
-			bodyStyle.Render(i18n.T("model_select.kind_" + string(spec.Kind))),
-			metaStyle.Render("Base URL: " + spec.DefaultBaseURL),
-		}
-		if spec.APIKeyEnv != "" {
-			lines = append(lines, metaStyle.Render("API Key env: "+spec.APIKeyEnv))
-		} else {
-			lines = append(lines, metaStyle.Render(i18n.T("model_select.local_provider_hint")))
-		}
-		if len(spec.RecommendedModels) > 0 {
-			lines = append(lines, bodyStyle.Render(i18n.T("model_select.recommended")+": "+strings.Join(spec.RecommendedModels, ", ")))
-		}
-		if spec.DocsURL != "" {
-			lines = append(lines, metaStyle.Render("Docs: "+spec.DocsURL))
-		}
+	// Role selector (fi == 0)
+	roleName := "Helper LLM"
+	if m.configDraft.Role == RolePlanner {
+		roleName = "Planner LLM"
+	}
+	roleBox := boxIdle
+	if fi == 0 {
+		roleBox = boxActive
+	}
+	helperChip := choiceOff.Render("Helper")
+	plannerChip := choiceOff.Render("Planner")
+	if m.configDraft.Role == RoleHelper {
+		helperChip = choiceOn.Render("Helper")
+	} else {
+		plannerChip = choiceOn.Render("Planner")
+	}
+	b.WriteString(keyStyle().Render("  Role") + "  " + mutedStyle().Render("(which LLM to configure)") + "\n")
+	b.WriteString("  " + roleBox.Render(helperChip+" "+plannerChip) + "\n")
+	b.WriteString("  " + mutedStyle().Render("Configuring: "+roleName) + "\n\n")
 
-		currentMark := ""
-		if spec.ID == m.roleProvider(m.modelSelectPhase) {
-			modelName := m.roleModel(m.modelSelectPhase)
-			if modelName == "" {
-				currentMark = lipgloss.NewStyle().Foreground(lipgloss.Color("#57D48A")).Bold(true).Render(i18n.T("model_select.current_provider"))
-			} else {
-				currentMark = lipgloss.NewStyle().Foreground(lipgloss.Color("#57D48A")).Bold(true).Render(fmt.Sprintf(i18n.T("model_select.current_provider_model"), modelName))
-			}
-			lines = append(lines, currentMark)
+	// Provider chips (fi == 1)
+	b.WriteString(keyStyle().Render("  Provider") + "\n")
+	var chips []string
+	for _, p := range draftProviders {
+		st := choiceOff
+		if p == provID {
+			st = choiceOn
 		}
+		chips = append(chips, st.Render(p))
+	}
+	chipLine := strings.Join(chips, " ")
+	provBox := boxIdle
+	if fi == 1 {
+		provBox = boxActive
+	}
+	b.WriteString("  " + provBox.Render(chipLine) + "\n")
+	b.WriteString("  " + mutedStyle().Render(meta.Label+" - "+meta.Kind) + "\n")
+	if len(meta.RecommendedModels) > 0 {
+		b.WriteString("  " + mutedStyle().Render("Recommended: "+strings.Join(meta.RecommendedModels, ", ")) + "\n")
+	}
+	b.WriteString("\n")
 
-		style := idleBox
-		cursor := "  "
-		if i == m.modelCursor {
-			style = activeBox
-			cursor = "> "
-		} else if spec.ID == m.roleProvider(m.modelSelectPhase) {
-			style = selectedBox
-		}
-		b.WriteString(cursor + style.Render(strings.Join(lines, "\n")))
-		b.WriteString("\n\n")
+	// Model field (fi == 2)
+	b.WriteString(keyStyle().Render("  Model") + "\n")
+	if provID == "ollama" {
+		b.WriteString(m.renderOllamaModelSelector(fi == 2, boxActive, boxIdle) + "\n\n")
+	} else {
+		b.WriteString("  " + m.renderTextField(m.configDraft.Model, fi == 2, boxActive, boxIdle) + "\n\n")
 	}
 
-	b.WriteString(metaStyle.Render(i18n.T("model_select.setup_footer")))
-	return m.padContent(b.String(), m.height)
+	// Endpoint field (fi == 3)
+	b.WriteString(keyStyle().Render("  Endpoint") + "\n")
+	b.WriteString("  " + m.renderTextField(m.configDraft.Endpoint, fi == 3, boxActive, boxIdle) + "\n\n")
+
+	// API Key Env field (fi == 4, only for non-ollama)
+	if provID != "ollama" {
+		b.WriteString(keyStyle().Render("  API Key Env") + "\n")
+		b.WriteString("  " + m.renderTextField(m.configDraft.APIKeyEnv, fi == 4, boxActive, boxIdle) + "\n")
+		if meta.APIKeyEnv != "" {
+			b.WriteString("  " + configHelpStyle().Render("Set "+meta.APIKeyEnv+" env var") + "\n")
+		}
+		b.WriteString("\n")
+	}
+
+	// Footer
+	if m.configEditing {
+		b.WriteString(configHelpStyle().Render("  Type to edit   Esc: stop   Tab: next   Enter: "+configText("save", m.language)+"   Ctrl+V: paste") + "\n")
+	} else {
+		b.WriteString(configHelpStyle().Render("  ←→: role/provider   Tab/↑↓: fields   Enter: edit/select   Esc: back   Ctrl+V: paste") + "\n")
+	}
+	return b.String()
 }
 
-func (m Model) renderInputScreen() string {
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99")).MarginBottom(1)
-	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Bold(true)
-	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	activeBoxStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("99")).
-		Padding(0, 1).
-		Width(maxInt(24, minInt(60, m.width-8)))
-	inactiveBoxStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("240")).
-		Padding(0, 1).
-		Width(maxInt(24, minInt(60, m.width-8)))
-
-	var b strings.Builder
-	action := ""
-	if m.inputSuggRef != nil {
-		action = m.inputSuggRef.Action
+func (m Model) renderOllamaModelSelector(active bool, boxActive, boxIdle lipgloss.Style) string {
+	box := boxIdle
+	if active {
+		box = boxActive
 	}
-	b.WriteString(titleStyle.Render(action))
-	b.WriteString("\n\n")
+	if m.ollamaFetching {
+		return "  " + box.Render(mutedStyle().Render("Loading models..."))
+	}
+	if m.ollamaFetchError != "" {
+		return "  " + box.Render(dangerStyle().Render("Error: "+m.ollamaFetchError)+"\n"+
+			mutedStyle().Render("  Fallback: ")+valueStyle().Render(m.configDraft.Model))
+	}
+	if len(m.ollamaModels) == 0 {
+		return "  " + box.Render(mutedStyle().Render("No local models found. Run: ollama pull <model>"))
+	}
+	var lines []string
+	for i, om := range m.ollamaModels {
+		prefix := "  "
+		st := configItemStyle()
+		if i == m.ollamaModelIdx {
+			prefix = accentStyle().Render("> ")
+			st = configActiveStyle()
+		}
+		check := ""
+		if m.configDraft.Model == om.Name {
+			check = " " + configCheckStyle().Render("●")
+		}
+		detail := ""
+		if om.ParamSize != "" {
+			detail = " " + mutedStyle().Render("("+om.ParamSize)
+			if om.Quant != "" {
+				detail += mutedStyle().Render(" " + om.Quant)
+			}
+			detail += mutedStyle().Render(")")
+		}
+		lines = append(lines, prefix+st.Render(om.Name)+detail+check)
+	}
+	return "  " + box.Render(strings.Join(lines, "\n"))
+}
 
-	if m.inputSuggRef != nil {
-		if m.inputSuggRef.Interaction == git.PlatformExec {
-			preview := platformActionTitle(applyPlatformInputs(m.inputSuggRef.PlatformOp, m.inputFields, m.inputValues))
-			b.WriteString(hintStyle.Render("  "+fmt.Sprintf(i18n.T("input.preview"), preview)) + "\n\n")
-		} else {
-			previewArgs := make([]string, len(m.inputSuggRef.Command))
-			copy(previewArgs, m.inputSuggRef.Command)
-			for i, field := range m.inputFields {
-				val := m.inputValues[i]
-				if val != "" && field.ArgIndex >= 0 && field.ArgIndex < len(previewArgs) {
-					previewArgs[field.ArgIndex] = val
-				} else if val != "" && field.Key != "" {
-					for j := range previewArgs {
-						previewArgs[j] = strings.ReplaceAll(previewArgs[j], field.Key, val)
+func (m Model) renderTextField(value string, active bool, boxActive, boxIdle lipgloss.Style) string {
+	if !active {
+		display := value
+		if display == "" {
+			display = mutedStyle().Render("(empty)")
+		}
+		return boxIdle.Render(display)
+	}
+	if m.configEditing {
+		before, after := splitAtRunePos(value, m.configDraft.CursorAt)
+		cursor := cursorStyle().Render("|")
+		display := before + cursor + after
+		if value == "" {
+			display = cursor + mutedStyle().Render("type here...")
+		}
+		return boxActive.Render(display)
+	}
+	display := value
+	if display == "" {
+		display = mutedStyle().Render("(empty)")
+	}
+	return boxActive.Render(display + "  " + accentStyle().Render("← Enter to edit"))
+}
+
+func (m Model) renderConfigModePage(w int) string {
+	lang := m.language
+	modes := []struct {
+		key, desc, val string
+	}{
+		{"mode_manual", "mode_manual_desc", "manual"},
+		{"mode_auto", "mode_auto_desc", "auto"},
+		{"mode_cruise", "mode_cruise_desc", "cruise"},
+	}
+	var lines []string
+	lines = append(lines, "")
+	for i, md := range modes {
+		prefix := "    "
+		style := configItemStyle()
+		if i == m.configModeIdx {
+			prefix = "  " + accentStyle().Render(">") + " "
+			style = configActiveStyle()
+		}
+		check := ""
+		if m.mode == md.val {
+			check = " " + configCheckStyle().Render("[*]")
+		}
+		lines = append(lines, prefix+style.Render(configText(md.key, lang))+check)
+		lines = append(lines, "      "+mutedStyle().Render(configText(md.desc, lang)))
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, sectionHeaderStyle().Render("  "+configText("cruise_interval_title", lang)))
+
+	intervalPrefix := "    "
+	intervalStyle := configItemStyle()
+	if m.configModeIdx == 3 {
+		intervalPrefix = "  " + accentStyle().Render(">") + " "
+		intervalStyle = configActiveStyle()
+	}
+
+	intervalDisplay := ""
+	if m.editingInterval {
+		cursor := cursorStyle().Render("│")
+		intervalDisplay = intervalStyle.Render(m.intervalBuf+cursor) +
+			mutedStyle().Render(" s")
+	} else {
+		intervalDisplay = intervalStyle.Render(fmt.Sprintf("%d", m.cruiseIntervalS)) +
+			mutedStyle().Render(" s  ("+formatDuration(m.cruiseIntervalS)+")")
+	}
+	lines = append(lines, intervalPrefix+keyStyle().Render(configText("cruise_interval_label", lang))+
+		"  "+intervalDisplay)
+	lines = append(lines, "      "+mutedStyle().Render(configText("cruise_interval_desc", lang)))
+
+	lines = append(lines, "")
+	help := fmt.Sprintf("  ↑↓ %s   Enter: %s   Esc: %s",
+		configText("navigate", lang), configText("select", lang), configText("back", lang))
+	lines = append(lines, configHelpStyle().Render(help))
+	return strings.Join(lines, "\n")
+}
+
+func formatDuration(seconds int) string {
+	if seconds < 60 {
+		return fmt.Sprintf("%ds", seconds)
+	}
+	m := seconds / 60
+	s := seconds % 60
+	if s == 0 {
+		return fmt.Sprintf("%dmin", m)
+	}
+	return fmt.Sprintf("%dmin%ds", m, s)
+}
+
+func (m Model) renderConfigLangPage(w int) string {
+	lang := m.language
+	langs := []struct {
+		label, val string
+	}{{"English", "en"}, {"中文", "zh"}, {"日本語", "ja"}}
+	var lines []string
+	lines = append(lines, "")
+	for i, l := range langs {
+		prefix := "    "
+		style := configItemStyle()
+		if i == m.configLangIdx {
+			prefix = "  " + accentStyle().Render(">") + " "
+			style = configActiveStyle()
+		}
+		check := ""
+		if m.language == l.val {
+			check = " " + configCheckStyle().Render("[*]")
+		}
+		lines = append(lines, prefix+style.Render(l.label)+check)
+	}
+	lines = append(lines, "")
+	lines = append(lines, configHelpStyle().Render(fmt.Sprintf("  ↑↓ %s   Enter: %s   Esc: %s",
+		configText("navigate", lang), configText("select", lang), configText("back", lang))))
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) renderConfigThemePage(w int) string {
+	lang := m.language
+	allThemes := theme.Names()
+	var lines []string
+	lines = append(lines, "")
+	for i, name := range allThemes {
+		prefix := "    "
+		st := configItemStyle()
+		if i == m.configThemeIdx {
+			prefix = "  " + accentStyle().Render(">") + " "
+			st = configActiveStyle()
+		}
+		check := ""
+		if m.configInfo.Theme == name {
+			check = " " + configCheckStyle().Render("[*]")
+		}
+		lines = append(lines, prefix+st.Render(name)+check)
+	}
+	lines = append(lines, "")
+	lines = append(lines, configHelpStyle().Render(fmt.Sprintf("  ↑↓ %s   Enter: %s   Esc: %s",
+		configText("navigate", lang), configText("select", lang), configText("back", lang))))
+	return strings.Join(lines, "\n")
+}
+
+// ── Main view ─────────────────────────────────────────────────────────
+
+func (m Model) renderMainView() string {
+	geo := m.calcLayout()
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	header := m.renderHeader(w)
+	input := m.renderInput(w)
+	left := m.renderLeftPanel(geo.leftW, geo.contentH)
+	right := m.renderRightPanel(geo.rightW, geo.contentH, geo)
+	sep := buildVSep(geo.contentH)
+	content := lipgloss.JoinHorizontal(lipgloss.Top, left, sep, right)
+
+	thinDiv := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(ts().Border)).
+		Render(strings.Repeat("─", w))
+
+	footerView := m.footerComp.View()
+	base := header + "\n" + thinDiv + "\n" + content + "\n" + thinDiv + "\n" + input + "\n" + footerView
+	if m.showCommandPalette {
+		base += "\n" + thinDiv + "\n" + m.renderCommandPalette(w)
+	}
+	if m.showHelpOverlay {
+		return base + "\n" + thinDiv + "\n" + m.renderHelpOverlay(w)
+	}
+	return base
+}
+
+func buildVSep(h int) string {
+	ch := borderStyle().Render("│")
+	lines := make([]string, h)
+	for i := range lines {
+		lines[i] = ch
+	}
+	return strings.Join(lines, "\n")
+}
+
+func modePill(mode string) string {
+	t := ts()
+	var fg, bg string
+	label := strings.ToUpper(mode)
+	switch mode {
+	case "manual":
+		fg, bg = t.BgPanel, t.Success
+	case "auto":
+		fg, bg = t.BgPanel, t.Warning
+	case "cruise":
+		fg, bg = t.BgPanel, t.Danger
+	default:
+		fg, bg = t.Text, t.Border
+	}
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(fg)).
+		Background(lipgloss.Color(bg)).
+		Bold(true).
+		Padding(0, 1).
+		Render(label)
+}
+
+func statusPill(analyzing, executing bool) string {
+	t := ts()
+	if analyzing {
+		return lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.BgPanel)).
+			Background(lipgloss.Color(t.Warning)).
+			Padding(0, 1).
+			Render("◉ ANALYZING")
+	}
+	if executing {
+		return lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.BgPanel)).
+			Background(lipgloss.Color(t.Warning)).
+			Padding(0, 1).
+			Render("◉ EXECUTING")
+	}
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(t.BgPanel)).
+		Background(lipgloss.Color(t.Success)).
+		Padding(0, 1).
+		Render("● READY")
+}
+
+func infoPill(label, value string) string {
+	t := ts()
+	lbl := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(t.TextMuted)).
+		Render(label)
+	val := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(t.Text)).
+		Render(value)
+	return lbl + " " + val
+}
+
+func (m Model) renderHeader(w int) string {
+	title := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(ts().Primary)).
+		Bold(true).
+		Render(" ◆ Gitdex")
+
+	mp := modePill(m.mode)
+	sp := statusPill(m.analyzing, m.executing)
+
+	cruiseInfo := ""
+	if m.mode == "cruise" {
+		status := "idle"
+		if m.cruiseCycleActive {
+			status = "active"
+		}
+		cruiseInfo = " " + mutedStyle().Render(fmt.Sprintf("⏱%s [%s]", formatDuration(m.cruiseIntervalS), status))
+	}
+
+	left := title + " " + mp + cruiseInfo + " " + sp
+
+	var rightParts []string
+
+	if m.lastTokenMax > 0 {
+		pct := m.lastTokenUsed * 100 / m.lastTokenMax
+		barStr := renderTokenBar(m.lastTokenUsed, m.lastTokenMax, 12)
+		pctLabel := fmt.Sprintf("%d%%", pct)
+		ctxStyle := mutedStyle()
+		if pct > 80 {
+			ctxStyle = warningStyle()
+		}
+		if pct > 95 {
+			ctxStyle = dangerStyle()
+		}
+		rightParts = append(rightParts, infoPill("ctx", barStr+" "+ctxStyle.Render(pctLabel)))
+	}
+
+	if m.activeFlow != "idle" {
+		rightParts = append(rightParts, infoPill("flow", flowStyle().Render(m.activeFlow)))
+	}
+
+	metrics := observability.SnapshotMetrics()
+	if metrics.CommandsTotal > 0 {
+		rightParts = append(rightParts, infoPill("cmd",
+			fmt.Sprintf("%d/%d", metrics.CommandsSucceeded, metrics.CommandsTotal)))
+	}
+	if metrics.ReplanAttempts > 0 {
+		rightParts = append(rightParts, warningStyle().Render(fmt.Sprintf("replan:%d", metrics.ReplanAttempts)))
+	}
+
+	if metrics.ProviderAvailable == 1 {
+		rightParts = append(rightParts, successStyle().Render("llm ●"))
+	} else {
+		rightParts = append(rightParts, dangerStyle().Render("llm ○"))
+	}
+
+	right := strings.Join(rightParts, "  ")
+	pad := w - lipgloss.Width(left) - lipgloss.Width(right)
+	if pad < 1 {
+		pad = 1
+	}
+	return left + strings.Repeat(" ", pad) + right
+}
+
+func renderTokenBar(used, max, barW int) string {
+	if max == 0 || barW <= 0 {
+		return ""
+	}
+	filled := used * barW / max
+	if filled > barW {
+		filled = barW
+	}
+	t := ts()
+	fillClr := t.Success
+	pct := used * 100 / max
+	if pct > 80 {
+		fillClr = t.Warning
+	}
+	if pct > 95 {
+		fillClr = t.Danger
+	}
+	fillStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(fillClr))
+	emptyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(t.Border))
+	return fillStyle.Render(strings.Repeat("█", filled)) + emptyStyle.Render(strings.Repeat("░", barW-filled))
+}
+
+func formatTokenCount(n int) string {
+	if n >= 1000 {
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	}
+	return fmt.Sprintf("%d", n)
+}
+
+func (m Model) renderInput(w int) string {
+	t := ts()
+	prefix := ""
+	if m.composerFocus {
+		prefix = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.BgPanel)).
+			Background(lipgloss.Color(t.Accent)).
+			Bold(true).
+			Padding(0, 1).
+			Render("❯")
+		prefix += " "
+	} else {
+		prefix = inactiveInputStyle().Render(" ❯ ")
+	}
+	text := m.composerText
+	cursor := ""
+	if m.composerFocus {
+		cursor = cursorStyle().Render("│")
+	}
+	hint := ""
+	if text == "" && !m.composerFocus {
+		hint = mutedStyle().Render("Click here or Tab to focus")
+	} else if text == "" && m.composerFocus {
+		hint = mutedStyle().Render("/goal <text>  /run  /mode  /creative  /config  /palette  /help")
+	}
+	inputLine := prefix + text + cursor + hint
+
+	helpItems := []string{"/goal", "/run", "/mode", "/creative", "/config", "/palette", "/analyze", "/help", "/clear"}
+	var helpParts []string
+	for _, item := range helpItems {
+		helpParts = append(helpParts, dimStyle().Render(item))
+	}
+	separator := dimStyle().Render("  ")
+	helpLine := " " + strings.Join(helpParts, separator)
+	helpLine += "   " + keyStyle().Render("Tab") + dimStyle().Render(":focus")
+	helpLine += "  " + keyStyle().Render("?") + dimStyle().Render(":help")
+	helpLine += "  " + keyStyle().Render("q") + dimStyle().Render(":quit")
+
+	return inputLine + "\n" + helpLine
+}
+
+// ── Left panel ────────────────────────────────────────────────────────
+
+func (m Model) renderLeftPanel(w, h int) string {
+	var lines []string
+	goalTotal := len(m.goals)
+	goalDone := 0
+	for _, g := range m.goals {
+		if g.Completed {
+			goalDone++
+		}
+	}
+	if goalTotal > 0 {
+		barW := w - 18
+		if barW < 5 {
+			barW = 5
+		}
+		lines = append(lines, fmt.Sprintf(" %s %s %d/%d",
+			keyStyle().Render("Goal"), renderProgressBar(goalDone, goalTotal, barW), goalDone, goalTotal))
+		todoTotal, todoDone := 0, 0
+		for _, g := range m.goals {
+			if !g.Completed && g.Title == m.activeGoal {
+				for _, t := range g.Todos {
+					todoTotal++
+					if t.Completed {
+						todoDone++
+					}
+				}
+				break
+			}
+		}
+		if todoTotal > 0 {
+			lines = append(lines, fmt.Sprintf(" %s %s %d/%d",
+				keyStyle().Render("Todo"), renderProgressBar(todoDone, todoTotal, barW), todoDone, todoTotal))
+		}
+	} else {
+		lines = append(lines, mutedStyle().Render(" "+configText("no_goal", m.language)))
+	}
+	lines = append(lines, "")
+
+	wrapW := w - 10
+	if wrapW < 10 {
+		wrapW = 10
+	}
+
+	if len(m.suggestions) > 0 {
+		hdr := sectionHeaderStyle()
+		if m.focusZone == FocusLeft {
+			hdr = focusedHeaderStyle()
+		}
+		lines = append(lines, hdr.Render(" ◆ Suggestions")+
+			mutedStyle().Render(fmt.Sprintf(" (%d)", len(m.suggestions))))
+		lines = append(lines, "")
+		for idx, sg := range m.suggestions {
+			icon, tag := suggStatusIcon(sg.Status)
+			name := firstLine(sg.Item.Name)
+			if name == "" {
+				name = "(unnamed)"
+			}
+			toolLabel := toolTypePill(sg.Item.Action.ToolLabel())
+
+			numStr := mutedStyle().Render(fmt.Sprintf("#%d", idx+1))
+			headerLine := fmt.Sprintf(" %s %s %s %s", icon, tag, numStr, toolLabel)
+			lines = append(lines, headerLine)
+
+			nameW := wrapW - 4
+			if nameW < 20 {
+				nameW = 20
+			}
+			for _, wl := range wrapText(name, nameW) {
+				lines = append(lines, "   "+valueStyle().Render(wl))
+			}
+
+			cmdStr := ""
+			if sg.Item.Action.Command != "" {
+				cmdStr = sg.Item.Action.Command
+			} else if sg.Item.Action.FilePath != "" {
+				cmdStr = fmt.Sprintf("%s %s", sg.Item.Action.FileOp, sg.Item.Action.FilePath)
+			}
+			if cmdStr != "" {
+				for _, wl := range wrapText(cmdStr, wrapW-6) {
+					lines = append(lines, "   "+commandStyle().Render("$ "+wl))
+				}
+			}
+			if sg.Item.Reason != "" {
+				reason := firstLine(sg.Item.Reason)
+				for _, wl := range wrapText(reason, wrapW-6) {
+					lines = append(lines, "   "+infoStyle().Render("→ "+wl))
+				}
+			}
+			if sg.Status == StatusDone && sg.Output != "" {
+				out := firstLine(sg.Output)
+				for _, wl := range wrapText(out, wrapW-4) {
+					lines = append(lines, "   "+successStyle().Render(wl))
+				}
+			}
+			if sg.Status == StatusFailed && sg.Error != "" {
+				errMsg := firstLine(sg.Error)
+				for _, wl := range wrapText(errMsg, wrapW-4) {
+					lines = append(lines, "   "+dangerStyle().Render("✗ "+wl))
+				}
+			}
+			lines = append(lines, "")
+		}
+	}
+
+	if len(m.roundHistory) > 0 {
+		lines = append(lines, sectionHeaderStyle().Render(" ◆ Completed"))
+		shown := m.roundHistory
+		if len(shown) > 5 {
+			shown = shown[len(shown)-5:]
+		}
+		for _, r := range shown {
+			for _, cmd := range r.Commands {
+				for _, wl := range wrapText(cmd, w-6) {
+					lines = append(lines, " "+successStyle().Render("✓ ")+mutedStyle().Render(wl))
+				}
+			}
+		}
+		lines = append(lines, "")
+	}
+
+	if len(lines) <= 2 && len(m.suggestions) == 0 {
+		lines = append(lines, "")
+		lines = append(lines, mutedStyle().Render("  Use /goal <text> to set a goal."))
+		lines = append(lines, mutedStyle().Render("  Type /help for commands."))
+		lines = append(lines, "")
+	}
+
+	return applyPanelScroll(lines, m.panelScrolls[FocusLeft], w, h)
+}
+
+func suggStatusIcon(st SuggestionStatus) (string, string) {
+	t := ts()
+	mkPill := func(icon, label, fg, bg string) (string, string) {
+		iconStr := lipgloss.NewStyle().Foreground(lipgloss.Color(fg)).Render(icon)
+		pillStr := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(fg)).
+			Background(lipgloss.Color(bg)).
+			Padding(0, 1).
+			Render(label)
+		return iconStr, pillStr
+	}
+	switch st {
+	case StatusExecuting:
+		return mkPill("◉", "RUN", t.BgPanel, t.Warning)
+	case StatusDone:
+		return mkPill("✓", "OK", t.BgPanel, t.Success)
+	case StatusFailed:
+		return mkPill("✗", "ERR", t.BgPanel, t.Danger)
+	case StatusSkipped:
+		return mkPill("○", "SKIP", t.TextMuted, t.Border)
+	default:
+		return mkPill("◌", "WAIT", t.TextMuted, t.Border)
+	}
+}
+
+func toolTypePill(toolType string) string {
+	t := ts()
+	clr := t.Accent
+	switch toolType {
+	case "git_command":
+		clr = t.Success
+	case "shell_command":
+		clr = t.Warning
+	case "file_write", "file_read":
+		clr = t.Info
+	case "github_op":
+		clr = t.Secondary
+	}
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(clr)).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(clr)).
+		Padding(0, 1).
+		Render(toolType)
+}
+
+// ── Right panel ───────────────────────────────────────────────────────
+
+func (m Model) renderRightPanel(w, h int, geo layoutGeo) string {
+	innerW := w - 4
+	if innerW < 10 {
+		innerW = 10
+	}
+	innerGitH := geo.gitH - 2
+	innerGoalH := geo.goalH - 2
+	innerLogH := geo.logH - 2
+	if innerGitH < 1 {
+		innerGitH = 1
+	}
+	if innerGoalH < 1 {
+		innerGoalH = 1
+	}
+	if innerLogH < 1 {
+		innerLogH = 1
+	}
+
+	git := m.renderGitPanel(innerW, innerGitH)
+	goal := m.renderGoalPanel(innerW, innerGoalH)
+	log := m.renderLogPanel(innerW, innerLogH)
+
+	gitTitle := panelTitle("Repository", m.focusZone == FocusGit)
+	goalTitle := panelTitle("Goals", m.focusZone == FocusGoals)
+	logTitle := panelTitle("Log", m.focusZone == FocusLog)
+
+	gitBox := m.panelBox(FocusGit, w, geo.gitH).Render(gitTitle + "\n" + git)
+	goalBox := m.panelBox(FocusGoals, w, geo.goalH).Render(goalTitle + "\n" + goal)
+	logBox := m.panelBox(FocusLog, w, geo.logH).Render(logTitle + "\n" + log)
+
+	return gitBox + "\n" + goalBox + "\n" + logBox
+}
+
+func panelTitle(title string, focused bool) string {
+	t := ts()
+	if focused {
+		return lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.Primary)).
+			Bold(true).
+			Render(" ◆ " + title)
+	}
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(t.TextMuted)).
+		Bold(true).
+		Render(" ◇ " + title)
+}
+
+func (m Model) panelBox(zone FocusZone, w, h int) lipgloss.Style {
+	t := ts()
+	borderClr := lipgloss.Color(t.Border)
+	if m.focusZone == zone {
+		borderClr = lipgloss.Color(t.BorderFoc)
+	}
+	boxW := w - 2
+	boxH := h - 2
+	if boxW < 1 {
+		boxW = 1
+	}
+	if boxH < 1 {
+		boxH = 1
+	}
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(borderClr).
+		Width(boxW).
+		Height(boxH)
+}
+
+func (m Model) renderGitPanel(w, h int) string {
+	var lines []string
+	gi := m.gitInfo
+
+	if gi.Branch != "" {
+		br := successBoldStyle().Render(gi.Branch)
+		if gi.Detached {
+			br += " " + statusTag("detached", ts().Danger)
+		}
+		lines = append(lines, fmt.Sprintf(" %s %s", dimLabel("branch"), br))
+	}
+
+	wtLabel := statusTag("clean", ts().Success)
+	if gi.WorkingDirty > 0 {
+		wtLabel = statusTag(fmt.Sprintf("%d changed", gi.WorkingDirty), ts().Warning)
+	}
+	saLabel := statusTag("clean", ts().Success)
+	if gi.StagingDirty > 0 {
+		saLabel = statusTag(fmt.Sprintf("%d staged", gi.StagingDirty), ts().Accent)
+	}
+	lines = append(lines, fmt.Sprintf(" %s %s  %s %s",
+		dimLabel("work"), wtLabel, dimLabel("stage"), saLabel))
+
+	if gi.Ahead > 0 || gi.Behind > 0 {
+		var parts []string
+		if gi.Ahead > 0 {
+			parts = append(parts, statusTag(fmt.Sprintf("↑%d ahead", gi.Ahead), ts().Warning))
+		}
+		if gi.Behind > 0 {
+			parts = append(parts, statusTag(fmt.Sprintf("↓%d behind", gi.Behind), ts().Danger))
+		}
+		lines = append(lines, " "+dimLabel("sync")+" "+strings.Join(parts, " "))
+	}
+
+	var flags []string
+	if gi.MergeInProgress {
+		flags = append(flags, statusTag("merge", ts().Danger))
+	}
+	if gi.RebaseInProgress {
+		flags = append(flags, statusTag("rebase", ts().Danger))
+	}
+	if gi.CherryInProgress {
+		flags = append(flags, statusTag("cherry-pick", ts().Danger))
+	}
+	if gi.BisectInProgress {
+		flags = append(flags, statusTag("bisect", ts().Danger))
+	}
+	if len(flags) > 0 {
+		lines = append(lines, " "+dimLabel("state")+" "+strings.Join(flags, " "))
+	}
+
+	if len(gi.Remotes) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, " "+dimLabel("remotes"))
+		nameW := 0
+		for _, r := range gi.Remotes {
+			if len(r.Name) > nameW {
+				nameW = len(r.Name)
+			}
+		}
+		for _, r := range gi.Remotes {
+			padded := r.Name + strings.Repeat(" ", nameW-len(r.Name))
+			lines = append(lines, fmt.Sprintf("   %s  %s",
+				accentStyle().Render(padded), mutedStyle().Render(r.FetchURL)))
+		}
+	}
+
+	if len(gi.LocalBranches) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, " "+dimLabel("branches"))
+		for _, b := range gi.LocalBranches {
+			marker := mutedStyle().Render("  ")
+			if b.IsCurrent {
+				marker = successBoldStyle().Render("● ")
+			}
+			brLine := marker + accentStyle().Render(b.Name)
+			if b.Upstream != "" {
+				brLine += mutedStyle().Render(" → " + b.Upstream)
+			}
+			lines = append(lines, " "+brLine)
+		}
+	}
+
+	if gi.Stash > 0 {
+		lines = append(lines, " "+dimLabel("stash")+" "+mutedStyle().Render(fmt.Sprintf("%d entries", gi.Stash)))
+	}
+	if gi.UserName != "" {
+		lines = append(lines, " "+dimLabel("user")+" "+valueStyle().Render(gi.UserName+" <"+gi.UserEmail+">"))
+	}
+
+	return applyPanelScroll(lines, m.panelScrolls[FocusGit], w, h)
+}
+
+func dimLabel(label string) string {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(ts().TextMuted)).
+		Bold(true).
+		Render(label + ":")
+}
+
+func statusTag(text, color string) string {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(color)).
+		Render(text)
+}
+
+func (m Model) renderGoalPanel(w, h int) string {
+	var lines []string
+	if len(m.goals) == 0 {
+		lines = append(lines, mutedStyle().Render("  "+configText("no_goal", m.language)))
+		return applyPanelScroll(lines, m.panelScrolls[FocusGoals], w, h)
+	}
+
+	totalDone, totalGoals := 0, 0
+	for _, g := range m.goals {
+		if g.Completed {
+			totalDone++
+		}
+		totalGoals++
+	}
+
+	barW := w - 20
+	if barW < 5 {
+		barW = 5
+	}
+	lines = append(lines, fmt.Sprintf(" %s %d/%d",
+		renderProgressBar(totalDone, totalGoals, barW), totalDone, totalGoals))
+	lines = append(lines, "")
+
+	var completed, pending []int
+	activeIdx := -1
+	for i, g := range m.goals {
+		if g.Completed {
+			completed = append(completed, i)
+		} else if activeIdx == -1 && g.Title == m.activeGoal {
+			activeIdx = i
+		} else if !g.Completed {
+			pending = append(pending, i)
+		}
+	}
+	if activeIdx == -1 && len(pending) > 0 {
+		activeIdx = pending[0]
+		pending = pending[1:]
+	}
+
+	show := completed
+	if len(show) > 3 {
+		show = show[len(show)-3:]
+	}
+	goalW := w - 6
+	if goalW < 20 {
+		goalW = 20
+	}
+	for _, idx := range show {
+		for i, wl := range wrapText(m.goals[idx].Title, goalW) {
+			if i == 0 {
+				lines = append(lines, " "+successStyle().Render("✓")+mutedStyle().Render(" "+wl))
+			} else {
+				lines = append(lines, "     "+mutedStyle().Render(wl))
+			}
+		}
+	}
+
+	if activeIdx >= 0 {
+		g := m.goals[activeIdx]
+		todoDone, todoTotal := dotgitdex.GoalProgress(g)
+
+		lines = append(lines, "")
+		activeTag := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(ts().BgPanel)).
+			Background(lipgloss.Color(ts().Warning)).
+			Bold(true).
+			Padding(0, 1).
+			Render("ACTIVE")
+		for i, wl := range wrapText(g.Title, goalW-lipgloss.Width(activeTag)-2) {
+			if i == 0 {
+				lines = append(lines, " "+activeTag+" "+accentStyle().Render(wl))
+			} else {
+				lines = append(lines, "     "+accentStyle().Render(wl))
+			}
+		}
+
+		if todoTotal > 0 {
+			todoBarW := goalW - 12
+			if todoBarW < 5 {
+				todoBarW = 5
+			}
+			lines = append(lines, fmt.Sprintf("   %s %d/%d",
+				renderProgressBar(todoDone, todoTotal, todoBarW), todoDone, todoTotal))
+		}
+
+		todoW := w - 8
+		if todoW < 16 {
+			todoW = 16
+		}
+		for _, td := range g.Todos {
+			if td.Completed {
+				for i, wl := range wrapText(td.Title, todoW) {
+					if i == 0 {
+						lines = append(lines, "   "+successStyle().Render("✓")+mutedStyle().Render(" "+wl))
+					} else {
+						lines = append(lines, "       "+mutedStyle().Render(wl))
+					}
+				}
+			} else {
+				for i, wl := range wrapText(td.Title, todoW) {
+					if i == 0 {
+						lines = append(lines, "   "+mutedStyle().Render("○")+valueStyle().Render(" "+wl))
+					} else {
+						lines = append(lines, "       "+valueStyle().Render(wl))
 					}
 				}
 			}
-			cmdPreview := joinCmd(previewArgs)
-			b.WriteString(hintStyle.Render("  "+fmt.Sprintf(i18n.T("input.preview"), cmdPreview)) + "\n\n")
 		}
 	}
 
-	for i, field := range m.inputFields {
-		isActive := i == m.inputIdx
-		b.WriteString(labelStyle.Render("  "+field.Label+":") + "\n")
-
-		val := m.inputValues[i]
-		display := val
-		if display == "" && !isActive {
-			display = field.Placeholder
-		}
-
-		if isActive {
-			before, after := splitAtRune(val, m.inputCursorAt)
-			cursor := "|"
-			if display == "" {
-				display = cursor + hintStyle.Render(field.Placeholder)
-			} else {
-				display = before + cursor + after
-			}
-			b.WriteString("  " + activeBoxStyle.Render(display) + "\n")
-		} else {
-			if val == "" {
-				display = hintStyle.Render(field.Placeholder)
-			}
-			b.WriteString("  " + inactiveBoxStyle.Render(display) + "\n")
-		}
-		b.WriteString("\n")
-	}
-
-	footerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	footer := i18n.T("input.footer")
-	if len(m.inputFields) > 1 {
-		footer += "  " + i18n.T("input.footer_tab")
-	}
-	footer += "  " + i18n.T("input.footer_paste")
-	b.WriteString(footerStyle.Render("  " + footer))
-
-	return m.padContent(b.String(), m.height)
-}
-
-func (m Model) renderGoalInputScreen() string {
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99")).MarginBottom(1)
-	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	boxStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("99")).
-		Padding(0, 1).
-		Width(maxInt(24, minInt(72, m.width-8)))
-
-	val := m.goalInput
-	before, after := splitAtRune(val, m.goalCursorAt)
-	cursor := "|"
-	display := before + cursor + after
-	if strings.TrimSpace(val) == "" {
-		display = cursor + hintStyle.Render(i18n.T("goal.placeholder"))
-	}
-
-	var b strings.Builder
-	b.WriteString(titleStyle.Render(i18n.T("goal.title")))
-	b.WriteString("\n")
-	b.WriteString(hintStyle.Render(i18n.T("goal.hint")))
-	b.WriteString("\n\n")
-	b.WriteString(boxStyle.Render(display))
-	return m.padContent(b.String(), m.height)
-}
-
-func (m Model) renderInlineComposer(width int) string {
-	content, _ := m.renderInlineComposerWithRegions(width)
-	return content
-}
-
-func (m Model) renderInlineComposerWithRegions(width int) (string, []clickRegion) {
-	panelWidth := width
-	if panelWidth < 28 {
-		panelWidth = 18
-	}
-	borderColor := lipgloss.Color("#31556F")
-	if m.composerFocused {
-		borderColor = lipgloss.Color("#6FC3DF")
-	}
-	borderStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(borderColor).
-		Padding(0, 1)
-	innerWidth, _ := panelInnerSize(borderStyle, panelWidth, 1)
-
-	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7BD8FF")).Render(localizedPromptTitle())
-	hintText := localizedPromptHintIdle()
-	if m.composerFocused {
-		hintText = localizedPromptHintActive()
-	}
-	hint := lipgloss.NewStyle().Foreground(lipgloss.Color("#7A8B99")).Render(hintText)
-
-	val := m.composerInput
-	display := val
-	if display == "" {
-		display = lipgloss.NewStyle().Foreground(lipgloss.Color("#7A8B99")).Render(localizedPromptPlaceholder())
-	}
-	if m.screen == screenMain && m.composerFocused {
-		before, after := splitAtRune(val, m.composerCursor)
-		cursor := "|"
-		if val == "" {
-			display = cursor + lipgloss.NewStyle().Foreground(lipgloss.Color("#7A8B99")).Render(localizedPromptPlaceholder())
-		} else {
-			display = before + cursor + after
-		}
-	}
-	body := wrapPlainText(display, innerWidth)
-	lines := []string{title}
-	lines = append(lines, body...)
-	lines = append(lines, hint)
-
-	clicks := make([]clickRegion, 0, 10)
-	suggestions := m.slashCommandSuggestions()
-	if len(suggestions) > 0 {
-		headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6FC3DF")).Bold(true)
-		activeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F2C572")).Bold(true)
-		commandStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F4F7FA")).Bold(true)
-		descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#8EA5B6"))
-
+	if len(pending) > 0 {
 		lines = append(lines, "")
-		lines = append(lines, headerStyle.Render(localizedCommandsTitle()))
-		for i, suggestion := range suggestions {
-			prefix := "  "
-			cmdText := commandStyle.Render("/" + suggestion.Command)
-			if i == m.slashCursor {
-				prefix = activeStyle.Render("> ")
-				cmdText = activeStyle.Render("/" + suggestion.Command)
-			}
-			line := prefix + truncateLine("/"+suggestion.Command+"  "+suggestion.Description, innerWidth)
-			if innerWidth > 30 {
-				line = prefix + cmdText + "  " + descStyle.Render(suggestion.Description)
-			}
-			lines = append(lines, line)
-			contentLine := len(lines) - 1
-			clicks = append(clicks, clickRegion{
-				action: "pick_slash_suggestion",
-				index:  i,
-				x0:     0,
-				y0:     contentLine + 1,
-				x1:     panelWidth,
-				y1:     contentLine + 2,
-			})
-		}
 	}
-
-	clicks = append(clicks, clickRegion{
-		action: "focus_prompt",
-		x0:     0,
-		y0:     0,
-		x1:     panelWidth,
-		y1:     len(lines) + 2,
-	})
-
-	content := strings.Join(lines, "\n")
-	return borderStyle.Width(panelWidth).Render(content), clicks
-}
-
-func (m Model) renderWorkflowSelectScreen() string {
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99")).MarginBottom(1)
-	subStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241")).MarginBottom(1)
-	activeStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("99")).
-		Background(lipgloss.Color("236")).
-		PaddingLeft(1).
-		PaddingRight(1)
-	normalStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("252")).
-		PaddingLeft(1).
-		PaddingRight(1)
-	detailStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-
-	var b strings.Builder
-	b.WriteString(titleStyle.Render(i18n.T("workflow_menu.title")))
-	b.WriteString("\n")
-	b.WriteString(subStyle.Render(i18n.T("workflow_menu.hint")))
-	b.WriteString("\n\n")
-
-	heightBudget := maxInt(4, m.height-6)
-	linesPerItem := 5
-	visibleCount := maxInt(1, heightBudget/linesPerItem)
-	start := m.workflowScroll
-	if start < 0 {
-		start = 0
-	}
-	if m.workflowCursor < start {
-		start = m.workflowCursor
-	}
-	if m.workflowCursor >= start+visibleCount {
-		start = m.workflowCursor - visibleCount + 1
-	}
-	if maxStart := maxInt(0, len(m.workflows)-visibleCount); start > maxStart {
-		start = maxStart
-	}
-	end := minInt(len(m.workflows), start+visibleCount)
-
-	for i := start; i < end; i++ {
-		wf := m.workflows[i]
-		cursor := "  "
-		style := normalStyle
-		if i == m.workflowCursor {
-			cursor = "> "
-			style = activeStyle
-		}
-		b.WriteString(cursor + style.Render(wf.Label) + "\n")
-		for _, line := range wrapPlainText("   "+wf.Goal, maxInt(16, m.width-6)) {
-			b.WriteString(detailStyle.Render(line) + "\n")
-		}
-		if len(wf.Prerequisites) > 0 {
-			for _, line := range wrapPlainText("   prerequisites: "+strings.Join(wf.Prerequisites, ", "), maxInt(16, m.width-6)) {
-				b.WriteString(detailStyle.Render(line) + "\n")
-			}
-		}
-		if len(wf.Capabilities) > 0 {
-			for _, line := range wrapPlainText("   capabilities: "+strings.Join(wf.Capabilities, ", "), maxInt(16, m.width-6)) {
-				b.WriteString(detailStyle.Render(line) + "\n")
-			}
-			if coverage := strings.TrimSpace(m.capabilityCoverageSummary(wf.Capabilities)); coverage != "" {
-				for _, line := range wrapPlainText("   coverage: "+coverage, maxInt(16, m.width-6)) {
-					b.WriteString(detailStyle.Render(line) + "\n")
-				}
-			}
-		}
-		if len(wf.Prefill) > 0 {
-			b.WriteString(detailStyle.Render(fmt.Sprintf("   orchestration hints: %d", len(wf.Prefill))) + "\n")
-		}
-		b.WriteString("\n")
-	}
-	if len(m.workflows) > 0 {
-		footer := fmt.Sprintf("scroll %d/%d", start+1, maxInt(1, len(m.workflows)-visibleCount+1))
-		b.WriteString(detailStyle.Render(footer))
-	}
-
-	return m.padContent(b.String(), m.height)
-}
-
-func (m Model) renderHeader() string {
-	branchInfo := ""
-	if m.gitState != nil {
-		b := m.gitState.LocalBranch
-		branchInfo = fmt.Sprintf("  branch:%s", b.Name)
-		if b.Ahead > 0 || b.Behind > 0 {
-			branchInfo += fmt.Sprintf("  ahead:%d behind:%d", b.Ahead, b.Behind)
-		}
-
-		var parts []string
-		untrackedCount, modifiedCount := 0, 0
-		for _, f := range m.gitState.WorkingTree {
-			if f.WorktreeCode == git.StatusUntracked {
-				untrackedCount++
+	for _, idx := range pending {
+		for i, wl := range wrapText(m.goals[idx].Title, goalW) {
+			if i == 0 {
+				lines = append(lines, " "+mutedStyle().Render("○ "+wl))
 			} else {
-				modifiedCount++
+				lines = append(lines, "     "+mutedStyle().Render(wl))
 			}
 		}
-		stagedCount := len(m.gitState.StagingArea)
-		if modifiedCount > 0 {
-			parts = append(parts, fmt.Sprintf(i18n.T("header.modified"), modifiedCount))
-		}
-		if untrackedCount > 0 {
-			parts = append(parts, fmt.Sprintf(i18n.T("header.untracked"), untrackedCount))
-		}
-		if stagedCount > 0 {
-			parts = append(parts, fmt.Sprintf(i18n.T("header.staged"), stagedCount))
-		}
-		stashCount := len(m.gitState.StashStack)
-		if stashCount > 0 {
-			parts = append(parts, fmt.Sprintf(i18n.T("header.stash"), stashCount))
-		}
-		if len(parts) > 0 {
-			branchInfo += "  " + strings.Join(parts, " | ")
-		}
 	}
 
-	title := i18n.T("app.name") + branchInfo
-	title = truncateLine(title, m.width)
-	if theme.Current != nil {
-		return theme.Current.Header.Width(m.width).Render(title)
-	}
-	return title
+	return applyPanelScroll(lines, m.panelScrolls[FocusGoals], w, h)
 }
 
-func (m Model) renderStatusBar() string {
-	msg := strings.TrimSpace(m.statusMsg)
-	if msg == "" {
-		msg = m.latestResultStatusSummary()
-	}
-	if msg == "" && m.startupInfo.GitAvailable {
-		msg = fmt.Sprintf(
-			i18n.T("status_bar.format"),
-			m.startupInfo.GitVersion,
-			m.startupInfo.AIStatus,
-			m.currentResolvedLanguage(),
-			m.mode,
-		)
-		if modelInfo := m.renderModelSummary(); modelInfo != "" {
-			msg += " | " + modelInfo
-		}
-		if m.automation.Enabled {
-			msg += fmt.Sprintf(" | %s:%s/%ds", localizedAutomationTitle(), localizedAutomationModeLabel(m.automationMode()), m.automation.MonitorInterval)
-		} else {
-			msg += fmt.Sprintf(" | %s:%s", localizedAutomationTitle(), localizedAutomationModeLabel(m.automationMode()))
-		}
-	}
-	if msg == "" {
-		msg = i18n.T("ui.ready")
-	}
-	msg = truncateLine(msg, m.width)
-	style := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241")).
-		Width(m.width)
-	return style.Render(msg)
-}
-
-func (m Model) latestResultStatusSummary() string {
-	if strings.TrimSpace(m.lastCommand.Title) == "" {
-		return ""
-	}
-	switch m.lastCommand.ResultKind {
-	case resultKindPlatformAdmin:
-		parts := []string{localizedStatusText(m.lastCommand.Status), humanCapabilityLabel(strings.TrimSpace(m.lastCommand.PlatformCapability))}
-		if flow := strings.TrimSpace(m.lastCommand.PlatformFlow); flow != "" {
-			parts = append(parts, flow)
-		}
-		if operation := strings.TrimSpace(m.lastCommand.PlatformOperation); operation != "" {
-			parts = append(parts, operation)
-		}
-		if summary := firstNonEmptyLine(m.lastCommand.Output); summary != "" {
-			parts = append(parts, summary)
-		}
-		return strings.Join(compactStringList(parts, 8), " | ")
-	case resultKindFileWrite:
-		fileLabel := strings.TrimSpace(firstNonEmpty(m.lastCommand.FilePath, m.lastCommand.Title))
-		return strings.TrimSpace(fmt.Sprintf("%s | %s | %s", localizedStatusText(m.lastCommand.Status), m.lastCommand.FileOperation, fileLabel))
-	default:
-		if summary := firstNonEmptyLine(m.lastCommand.Output); summary != "" {
-			return strings.TrimSpace(fmt.Sprintf("%s | %s | %s", localizedStatusText(m.lastCommand.Status), m.lastCommand.Title, summary))
-		}
-		return strings.TrimSpace(fmt.Sprintf("%s | %s", localizedStatusText(m.lastCommand.Status), m.lastCommand.Title))
-	}
-}
-
-func (m Model) renderActionBar() string {
-	bar := "/help  /goal <text>  /settings show|mode|interval  /workflow  /refresh  /accept  /skip  /why  click: suggestions/log"
-	if m.lastPlatform != nil && m.lastPlatform.Mutation != nil {
-		bar += "  /validate  /rollback"
-	}
-	if m.editableFileRequest() != nil || m.editablePlatformRequest() != nil {
-		bar += "  /edit"
-	}
-	bar = truncateLine(bar, m.width)
-	if theme.Current != nil {
-		return theme.Current.ActionBar.Width(m.width).Render(bar)
-	}
-	return bar
-}
-
-func (m Model) renderModelSummary() string {
-	if strings.TrimSpace(m.selectedPrimary) == "" {
-		return ""
-	}
-	primary := strings.TrimSpace(m.selectedPrimary)
-	if provider := strings.TrimSpace(m.primaryProvider); provider != "" {
-		primary = provider + "/" + primary
-	}
-	if m.secondaryEnabled && strings.TrimSpace(m.selectedSecondary) != "" {
-		secondary := strings.TrimSpace(m.selectedSecondary)
-		if provider := strings.TrimSpace(m.secondaryProvider); provider != "" {
-			secondary = provider + "/" + secondary
-		}
-		return fmt.Sprintf(i18n.T("model_select.summary_on"), primary, secondary)
-	}
-	return fmt.Sprintf(i18n.T("model_select.summary_off"), primary)
-}
-
-func (m Model) renderMainContent(height int) string {
-	content, _, _ := m.renderMainLayoutWithRegions(height)
-	return content
-}
-
-func (m Model) renderMainLayout(height int) (string, []panelRegion) {
-	content, regions, _ := m.renderMainLayoutWithRegions(height)
-	return content, regions
-}
-
-func (m Model) renderMainLayoutWithRegions(height int) (string, []panelRegion, []clickRegion) {
-	if m.gitState == nil {
-		welcome := i18n.T("welcome.title") + "\n\n"
-		if m.startupInfo.GitAvailable {
-			welcome += fmt.Sprintf(i18n.T("welcome.git_ok"), m.startupInfo.GitVersion) + "\n"
-		} else {
-			welcome += i18n.T("welcome.git_missing") + "\n"
-		}
-		welcome += fmt.Sprintf(i18n.T("welcome.ollama_status"), m.startupInfo.AIStatus) + "\n"
-		welcome += "\n" + i18n.T("welcome.waiting")
-		return m.padContent(welcome, height), []panelRegion{{pane: scrollPaneWorkspace, x0: 0, y0: 0, x1: m.width, y1: height}}, nil
-	}
-
-	if m.width < 80 {
-		summaryHeight := 0
-		summary := strings.TrimSpace(m.renderCompactAreasSummary())
-		if summary != "" {
-			summaryHeight = 1
-		}
-		remaining := height - summaryHeight
-		if remaining < 9 {
-			remaining = 9
-		}
-
-		logHeight := 1
-		logGap := 0
-		if m.logExpanded {
-			logHeight = maxInt(6, remaining/4)
-			logGap = 1
-		}
-		mainHeight := remaining - logGap - logHeight
-		if mainHeight < 8 {
-			mainHeight = 8
-		}
-		obsHeight := maxInt(7, mainHeight/3)
-		workspaceHeight := mainHeight - obsHeight
-		if workspaceHeight < 4 {
-			deficit := 4 - workspaceHeight
-			reduceObs := minInt(deficit, maxInt(0, obsHeight-6))
-			obsHeight -= reduceObs
-			deficit -= reduceObs
-			if deficit > 0 {
-				reduceLog := minInt(deficit, maxInt(0, logHeight-5))
-				logHeight -= reduceLog
-				deficit -= reduceLog
-			}
-			workspaceHeight = mainHeight - obsHeight
-			if workspaceHeight < 4 {
-				workspaceHeight = 4
-			}
-		}
-
-		topParts := make([]string, 0, 4)
-		regions := make([]panelRegion, 0, 3)
-		clicks := make([]clickRegion, 0, 4)
-		y := 0
-		if summaryHeight > 0 {
-			topParts = append(topParts, summary)
-			y++
-		}
-
-		workspaceFull, workspaceClicks := m.renderLeftWorkspaceWithRegions(m.width)
-		workspace := sliceVisibleLines(workspaceFull, workspaceHeight, m.leftScroll)
-		topParts = append(topParts, workspace)
-		regions = append(regions, panelRegion{pane: scrollPaneWorkspace, x0: 0, y0: y, x1: m.width, y1: y + workspaceHeight})
-		clicks = append(clicks, translateClickRegions(workspaceClicks, 0, y, m.leftScroll, workspaceHeight)...)
-		y += workspaceHeight
-
-		obsPanel, obsClicks := m.renderObservabilityPanelCachedWithRegions(m.width, obsHeight)
-		topParts = append(topParts, obsPanel)
-		regions = append(regions, panelRegion{pane: scrollPaneObservability, x0: 0, y0: y, x1: m.width, y1: minInt(height, y+obsHeight)})
-		clicks = append(clicks, offsetClickRegions(obsClicks, 0, y)...)
-		logTop := height - logGap - logHeight
-		logPanel := m.renderOperationLogPanelCached(m.width, logHeight)
-		regions = append(regions, panelRegion{pane: scrollPaneLog, x0: 0, y0: y, x1: m.width, y1: y + logHeight})
-		regions[len(regions)-1].y0 = logTop
-		regions[len(regions)-1].y1 = logTop + logHeight
-		clicks = append(clicks, clickRegion{action: "toggle_log", x0: 0, y0: logTop, x1: m.width, y1: logTop + logHeight})
-
-		topContent := m.padContent(joinLayoutBlocks(topParts), logTop)
-		contentParts := []string{topContent}
-		if logGap > 0 {
-			contentParts = append(contentParts, "")
-		}
-		contentParts = append(contentParts, logPanel)
-		return joinLayoutBlocks(contentParts), regions, clicks
-	}
-
-	gap := 1
-	leftWidth, rightWidth, narrow := m.columnWidths()
-	if narrow || leftWidth < 40 {
-		workspaceFull, workspaceClicks := m.renderLeftWorkspaceWithRegions(m.width)
-		logHeight := 1
-		logGap := 0
-		if m.logExpanded {
-			logHeight = maxInt(8, height/3)
-			logGap = 1
-		}
-		workspaceHeight := height - logGap - logHeight
-		if workspaceHeight < 4 {
-			workspaceHeight = 4
-		}
-		topContent := m.padContent(sliceVisibleLines(workspaceFull, workspaceHeight, m.leftScroll), height-logGap-logHeight)
-		contentParts := []string{topContent}
-		if logGap > 0 {
-			contentParts = append(contentParts, "")
-		}
-		contentParts = append(contentParts, m.renderOperationLogPanelCached(m.width, logHeight))
-		content := joinLayoutBlocks(contentParts)
-		regions := []panelRegion{
-			{pane: scrollPaneWorkspace, x0: 0, y0: 0, x1: m.width, y1: workspaceHeight},
-			{pane: scrollPaneLog, x0: 0, y0: workspaceHeight + logGap, x1: m.width, y1: workspaceHeight + logGap + logHeight},
-		}
-		clicks := translateClickRegions(workspaceClicks, 0, 0, m.leftScroll, workspaceHeight)
-		clicks = append(clicks, clickRegion{action: "toggle_log", x0: 0, y0: workspaceHeight + logGap, x1: m.width, y1: workspaceHeight + logGap + logHeight})
-		return m.padContent(content, height), regions, clicks
-	}
-
-	logHeight := 1
-	logGap := 0
-	if m.logExpanded {
-		logHeight = maxInt(10, height/3)
-		logGap = 1
-	}
-	topHeight := height - logGap - logHeight
-	if topHeight < 12 {
-		topHeight = 12
-		logHeight = maxInt(1, height-logGap-topHeight)
-	}
-	rightTopHeight := topHeight * 42 / 100
-	if rightTopHeight < 12 {
-		rightTopHeight = 12
-	}
-	if rightTopHeight > topHeight-12 {
-		rightTopHeight = topHeight - 12
-	}
-	rightBottomHeight := topHeight - gap - rightTopHeight
-	if rightBottomHeight < 10 {
-		rightBottomHeight = 10
-		rightTopHeight = topHeight - gap - rightBottomHeight
-	}
-	workspaceHeight := topHeight
-	workspaceFull, workspaceClicks := m.renderLeftWorkspaceWithRegions(leftWidth)
-	workspace := lipgloss.NewStyle().Width(leftWidth).Render(sliceVisibleLines(workspaceFull, workspaceHeight, m.leftScroll))
-	areas := lipgloss.NewStyle().Width(rightWidth).Render(m.renderAreasTreePanel(rightWidth, rightTopHeight))
-	obsPanel, obsClicks := m.renderObservabilityPanelCachedWithRegions(rightWidth, rightBottomHeight)
-	obs := lipgloss.NewStyle().Width(rightWidth).Render(obsPanel)
-	right := lipgloss.JoinVertical(lipgloss.Left, areas, "", obs)
-	topContent := lipgloss.JoinHorizontal(lipgloss.Top, workspace, " ", right)
-	contentParts := []string{m.padContent(topContent, topHeight)}
-	if logGap > 0 {
-		contentParts = append(contentParts, "")
-	}
-	contentParts = append(contentParts, lipgloss.NewStyle().Width(m.width).Render(m.renderOperationLogPanelCached(m.width, logHeight)))
-	content := joinLayoutBlocks(contentParts)
-	regions := []panelRegion{
-		{pane: scrollPaneWorkspace, x0: 0, y0: 0, x1: leftWidth, y1: workspaceHeight},
-		{pane: scrollPaneAreas, x0: leftWidth + gap, y0: 0, x1: leftWidth + gap + rightWidth, y1: rightTopHeight},
-		{pane: scrollPaneObservability, x0: leftWidth + gap, y0: rightTopHeight + gap, x1: leftWidth + gap + rightWidth, y1: topHeight},
-		{pane: scrollPaneLog, x0: 0, y0: topHeight + logGap, x1: m.width, y1: topHeight + logGap + logHeight},
-	}
-	clicks := translateClickRegions(workspaceClicks, 0, 0, m.leftScroll, workspaceHeight)
-	clicks = append(clicks, offsetClickRegions(obsClicks, leftWidth+gap, rightTopHeight+gap)...)
-	clicks = append(clicks, clickRegion{action: "toggle_log", x0: 0, y0: topHeight + logGap, x1: m.width, y1: topHeight + logGap + logHeight})
-	return m.padContent(content, height), regions, clicks
-}
-
-func (m Model) renderLeftWorkspace(width int) string {
-	content, _ := m.renderLeftWorkspaceWithRegions(width)
-	return content
-}
-
-func (m Model) renderLeftWorkspaceWithRegions(width int) (string, []clickRegion) {
-	var sections []string
-	var clicks []clickRegion
-	lineOffset := 0
-	appendSection := func(section string, sectionClicks []clickRegion) {
-		if section == "" {
-			return
-		}
-		if len(sections) > 0 {
-			sections = append(sections, "")
-			lineOffset++
-		}
-		sections = append(sections, section)
-		clicks = append(clicks, offsetClickRegions(sectionClicks, 0, lineOffset)...)
-		lineOffset += lineCount(section)
-	}
-
-	if composer, composerClicks := m.renderInlineComposerWithRegions(width); composer != "" {
-		appendSection(composer, composerClicks)
-	}
-	if automation := m.renderAutomationPanelCached(width); automation != "" {
-		appendSection(automation, []clickRegion{{action: "open_settings", x0: 0, y0: 0, x1: width, y1: lineCount(automation)}})
-	}
-	tabsLine, tabClicks := m.renderWorkspaceTabsWithRegions(width)
-	appendSection(tabsLine, tabClicks)
-
-	primarySection, primaryClicks := m.renderWorkspacePrimarySection(width)
-	appendSection(primarySection, primaryClicks)
-
-	if m.llmThinking != "" && m.expanded {
-		appendSection(m.renderThinkingPanel(width), nil)
-	}
-	return strings.Join(sections, "\n"), clicks
-}
-
-func (m Model) renderCompactAreasSummary() string {
-	if m.gitState == nil {
-		return ""
-	}
-	ahead, behind := m.gitState.LocalBranch.Ahead, m.gitState.LocalBranch.Behind
-	if m.gitState.UpstreamState != nil {
-		ahead = m.gitState.UpstreamState.Ahead
-		behind = m.gitState.UpstreamState.Behind
-	}
-	summary := fmt.Sprintf(
-		"[areas] wd:%d | stage:%d | branch:%s | ahead:%d behind:%d | remotes:%d",
-		len(m.gitState.WorkingTree),
-		len(m.gitState.StagingArea),
-		m.gitState.LocalBranch.Name,
-		ahead,
-		behind,
-		len(m.gitState.RemoteInfos),
-	)
-	return lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(summary)
-}
-
-func (m Model) renderOperationLogPanel(width, height int) string {
-	if width < 16 {
-		width = 16
-	}
-	if !m.logExpanded {
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#A98CFF")).Bold(true).Render("> " + i18n.T("oplog.title") + " (" + i18n.T("oplog.collapsed") + ")")
-	}
-	if m.logExpanded && height < 8 {
-		height = 8
-	}
-	panelStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#8A6BFF")).
-		Padding(0, 1)
-	innerWidth, innerHeight := panelInnerSize(panelStyle, width, height)
-
-	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#A98CFF"))
-	modeLabel := i18n.T("oplog.collapsed")
-	if m.logExpanded {
-		modeLabel = i18n.T("oplog.expanded")
-	}
-	hints := i18n.T("oplog.toggle")
-	hints += "  " + i18n.T("oplog.scroll")
-	chromeHeight := 2
-	bodyHeight := innerHeight - chromeHeight
-	if bodyHeight < 3 {
-		bodyHeight = 3
-	}
-	logBody := m.renderOperationLogBody(innerWidth, bodyHeight)
-
-	content := strings.Join([]string{
-		headerStyle.Render(i18n.T("oplog.title") + " (" + modeLabel + ")"),
-		logBody,
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#7A8B99")).Render(hints),
-	}, "\n")
-
-	return renderBoundedPanel(panelStyle, width, height, content)
-}
-
-func (m Model) renderOperationLogBody(width, height int) string {
-	if height <= 0 {
-		return ""
-	}
-	lines := m.operationLogLines(width)
-	if len(lines) == 0 {
-		return sliceVisibleLinesFromEnd(i18n.T("oplog.empty"), height, 0)
-	}
-	return sliceVisibleLinesFromEnd(strings.Join(lines, "\n"), height, m.logScrollOffset)
-}
-
-func (m Model) operationLogLines(width int) []string {
-	if m.opLog == nil {
-		return nil
-	}
+func (m Model) renderLogPanel(w, h int) string {
+	var lines []string
 	entries := m.opLog.Entries()
 	if len(entries) == 0 {
-		return nil
+		lines = append(lines, mutedStyle().Render("  No log entries yet"))
+		return applyPanelScroll(lines, m.panelScrolls[FocusLog], w, h)
 	}
-	lines := make([]string, 0, len(entries)*3)
-	for _, entry := range entries {
-		prefix := fmt.Sprintf("%s %s ", entry.Timestamp.Format("15:04:05"), entry.Icon())
-		summaryStyle := eventTypeStyle(entry.Type)
-		summary := strings.TrimSpace(entry.Summary)
-		if summary == "" {
-			summary = strings.TrimSpace(entry.Detail)
+	shown := entries
+	if len(shown) > 30 {
+		shown = shown[len(shown)-30:]
+	}
+
+	if !m.detailPaneOpen {
+		summaryW := w - 4
+		if summaryW < 20 {
+			summaryW = 20
 		}
-		lines = append(lines, renderWrappedField(prefix, tsStyle(), summary, summaryStyle, width)...)
-		if detail := strings.TrimSpace(entry.Detail); detail != "" {
-			for _, detailLine := range wrapPlainText(detail, maxInt(8, width-2)) {
-				lines = append(lines, infoStyle().Render("  "+detailLine))
-			}
+		detailW := w - 6
+		if detailW < 16 {
+			detailW = 16
 		}
-	}
-	return lines
-}
-
-func (m Model) renderAreasTreePanel(width, height int) string {
-	if width < 24 {
-		width = 18
-	}
-	if height < 10 {
-		height = 10
-	}
-	panelStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#6FC3DF")).
-		Padding(0, 1)
-	innerWidth, innerHeight := panelInnerSize(panelStyle, width, height)
-	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("63"))
-	tree := components.NewAreasTree(m.gitState).
-		SetWidth(innerWidth).
-		SetMaxItems(0).
-		View()
-	chromeHeight := 2
-	bodyHeight := innerHeight - chromeHeight
-	if bodyHeight < 3 {
-		bodyHeight = 3
-	}
-	body := sliceVisibleLines(tree, bodyHeight, m.areasScroll)
-	maxPage := 1
-	if totalLines := lineCount(tree); totalLines > bodyHeight {
-		maxPage = totalLines - bodyHeight + 1
-	}
-	scrollHint := mutedStyle().Render(fmt.Sprintf("scroll %d/%d", m.areasScroll+1, maxPage))
-	content := headerStyle.Render(i18n.T("areas.title")) + "\n" + body + "\n" + scrollHint
-	return renderBoundedPanel(panelStyle, width, height, content)
-}
-
-func (m Model) renderAnalysisPanel(width int) string {
-	panelWidth := width
-	if panelWidth <= 0 {
-		panelWidth = m.width
-	}
-	if panelWidth < 18 {
-		panelWidth = 18
-	}
-	borderStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#31556F")).
-		Padding(0, 1)
-	innerWidth, _ := panelInnerSize(borderStyle, panelWidth, 1)
-	borderStyle = borderStyle.Width(innerWidth)
-	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7BD8FF"))
-	textStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#E5EEF5"))
-	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FF8C73")).Bold(true)
-
-	var parts []string
-	parts = append(parts, headerStyle.Render(i18n.T("analysis.title")))
-
-	if goal := strings.TrimSpace(m.session.ActiveGoal); goal != "" {
-		goalStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
-		statusStr := ""
-		if s := m.currentGoalStatus(); s != "" {
-			statusStr = " (" + localizedGoalStatusText(s) + ")"
-		}
-		parts = append(parts, goalStyle.Render(localizedGoalLabel()+": "+goal+statusStr))
-	}
-
-	if analysisHasFailure(m.llmAnalysis) {
-		parts = append(parts, errorStyle.Render(m.llmAnalysis))
-	} else {
-		parts = append(parts, textStyle.Render(m.llmAnalysis))
-	}
-
-	return borderStyle.Render(strings.Join(parts, "\n"))
-}
-
-func (m Model) renderContextSummary() string {
-	if m.gitState == nil {
-		return ""
-	}
-	s := m.gitState
-	var items []string
-	items = append(items, fmt.Sprintf("branch:%s", s.LocalBranch.Name))
-	items = append(items, fmt.Sprintf("commits:%d", s.CommitCount))
-	if len(s.WorkingTree) > 0 {
-		items = append(items, fmt.Sprintf("changes:%d", len(s.WorkingTree)))
-	}
-	if len(s.StagingArea) > 0 {
-		items = append(items, fmt.Sprintf("staged:%d", len(s.StagingArea)))
-	}
-	for _, r := range s.RemoteInfos {
-		tag := "valid"
-		if !r.FetchURLValid && !r.PushURLValid {
-			tag = "invalid"
-		}
-		items = append(items, fmt.Sprintf("remote:%s(%s)", r.Name, tag))
-	}
-	if len(s.Remotes) == 0 {
-		items = append(items, "remote:none")
-	}
-	return "[" + strings.Join(items, " | ") + "]"
-}
-
-func (m Model) renderThinkingPanel(width int) string {
-	panelWidth := width
-	if panelWidth <= 0 {
-		panelWidth = m.width
-	}
-	if panelWidth < 18 {
-		panelWidth = 18
-	}
-	borderStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("241")).
-		Padding(0, 1)
-	innerWidth, _ := panelInnerSize(borderStyle, panelWidth, 1)
-	borderStyle = borderStyle.Width(innerWidth)
-	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("241"))
-	thinkStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Italic(true)
-	content := headerStyle.Render(i18n.T("thinking.title")) + "\n" + thinkStyle.Render(strings.TrimSpace(m.llmThinking))
-	return borderStyle.Render(content)
-}
-
-func (m Model) renderFileStatus() string {
-	var lines []string
-
-	if len(m.gitState.StagingArea) > 0 {
-		headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("42"))
-		lines = append(lines, headerStyle.Render(fmt.Sprintf(i18n.T("file_status.staged"), len(m.gitState.StagingArea))))
-		for _, f := range m.gitState.StagingArea {
-			icon := statusIcon(f.StagingCode)
-			style := statusStyle(f.StagingCode)
-			lines = append(lines, "  "+style.Render(icon+" "+f.Path))
-		}
-	}
-	if len(m.gitState.WorkingTree) > 0 {
-		headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("208"))
-		lines = append(lines, headerStyle.Render(fmt.Sprintf(i18n.T("file_status.changes"), len(m.gitState.WorkingTree))))
-		for _, f := range m.gitState.WorkingTree {
-			icon := statusIcon(f.WorktreeCode)
-			style := statusStyle(f.WorktreeCode)
-			lines = append(lines, "  "+style.Render(icon+" "+f.Path))
-		}
-	}
-
-	return strings.Join(lines, "\n")
-}
-
-func (m Model) renderSuggestionCards(width int) string {
-	content, _ := m.renderSuggestionCardsWithRegions(width)
-	return content
-}
-
-func (m Model) renderSuggestionCardsWithRegions(width int) (string, []clickRegion) {
-	cardWidth := width
-	if cardWidth <= 0 {
-		cardWidth = m.width
-	}
-	if cardWidth < 30 {
-		cardWidth = 30
-	}
-
-	var cards []string
-	var clicks []clickRegion
-	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("99"))
-
-	done := 0
-	for _, st := range m.suggExecState {
-		if st != git.ExecPending {
-			done++
-		}
-	}
-	title := fmt.Sprintf(i18n.T("suggestions.title"), len(m.suggestions))
-	if done > 0 {
-		title = fmt.Sprintf(i18n.T("suggestions.title_done"), done, len(m.suggestions))
-	}
-	cards = append(cards, headerStyle.Render(title))
-	lineOffset := lineCount(cards[0])
-
-	doneStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
-	failStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-	dimStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-
-	for i, s := range m.suggestions {
-		isActive := i == m.suggIdx
-		var execState git.ExecState
-		var execMsg string
-		if i < len(m.suggExecState) {
-			execState = m.suggExecState[i]
-		}
-		if i < len(m.suggExecMsg) {
-			execMsg = m.suggExecMsg[i]
-		}
-
-		reason := s.Reason
-		if isActive && m.llmReason != "" {
-			reason = m.llmReason
-		}
-
-		action := s.Action
-		if s.Source == git.SourceLLM {
-			action = "[AI] " + action
-		}
-		switch execState {
-		case git.ExecDone:
-			action = "[done] " + action
-		case git.ExecFailed:
-			action = "[fail] " + action
-		case git.ExecRunning:
-			action = "[run] " + action
-		}
-
-		var cmdDisplay []string
-		var noteDisplay []string
-		switch s.Interaction {
-		case git.InfoOnly:
-			cmdDisplay = []string{"Review advisory details"}
-		case git.FileWrite:
-			if s.FileOp != nil {
-				op := strings.TrimSpace(s.FileOp.Operation)
-				if op == "" {
-					op = "create"
+		for _, e := range shown {
+			ts := tsTimeStyle().Render(e.Timestamp.Format("15:04:05"))
+			icon := e.Icon()
+			summary := firstLine(e.Summary)
+			for i, wl := range wrapText(summary, summaryW-10) {
+				if i == 0 {
+					lines = append(lines, fmt.Sprintf(" %s %s %s", icon, ts, valueStyle().Render(wl)))
+				} else {
+					lines = append(lines, "            "+valueStyle().Render(wl))
 				}
-				cmdDisplay = []string{fmt.Sprintf("%s file %s", op, s.FileOp.Path)}
-			} else {
-				cmdDisplay = []string{"Prepare file change"}
 			}
-		case git.NeedsInput:
-			cmdDisplay = []string{"Requires input before execution"}
-		case git.PlatformExec:
-			cmdDisplay = []string{platformSuggestionCommand(s.PlatformOp)}
-		default:
-			command := strings.TrimSpace(joinCmd(s.Command))
-			if command == "" {
-				command = "Review suggested action"
-			}
-			cmdDisplay = []string{command}
-		}
-		if strings.TrimSpace(execMsg) != "" && execMsg != "done" && execMsg != "success" && execMsg != "running..." {
-			noteDisplay = append(noteDisplay, execMsg)
-		}
-
-		card := components.NewSuggestionCard(action, reason, cmdDisplay, riskLabel(s.RiskLevel))
-		card.Notes = noteDisplay
-		card.Controls = "click: select  /accept  /skip  /why"
-		if isActive {
-			card.Controls = "selected  click: details  /accept  /skip  /why"
-		}
-		if s.PlatformOp != nil {
-			pID := m.detectedPlatform()
-			meta := platformRequestMeta(pID, s.PlatformOp)
-			card.Coverage = strings.TrimSpace(firstNonEmpty(string(meta.Coverage), m.capabilityCoverageLabel(s.PlatformOp.CapabilityID)))
-			card.Adapter = string(meta.Adapter)
-			card.Rollback = string(meta.Rollback)
-			if meta.ApprovalRequired {
-				card.Approval = "required"
-			}
-			card.BoundaryReason = strings.TrimSpace(firstNonEmpty(platformBoundaryReason(pID, s.PlatformOp.CapabilityID), meta.BoundaryReason))
-			card.RequestIdentity = git.PlatformExecIdentity(s.PlatformOp)
-			card.CommandPrefix = ""
-		} else if s.Interaction == git.FileWrite || s.Interaction == git.InfoOnly || s.Interaction == git.NeedsInput {
-			card.CommandPrefix = ""
-		}
-		if isActive && m.expanded {
-			card.Expanded = true
-		}
-
-		rendered := card.View(cardWidth - 2)
-		switch execState {
-		case git.ExecDone:
-			rendered = doneStyle.Render("[ok] ") + dimStyle.Render(rendered)
-		case git.ExecFailed:
-			rendered = failStyle.Render("[x] ") + rendered
-		case git.ExecRunning:
-			if isActive {
-				marker := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
-				rendered = marker.Render("[..] ") + rendered
-			} else {
-				rendered = "    " + rendered
-			}
-		default:
-			if isActive {
-				marker := lipgloss.NewStyle().Foreground(lipgloss.Color("99")).Bold(true)
-				rendered = marker.Render("> ") + rendered
-			} else {
-				rendered = "  " + rendered
+			if e.Detail != "" {
+				detail := firstLine(e.Detail)
+				for _, wl := range wrapText(detail, detailW) {
+					lines = append(lines, "     "+mutedStyle().Render(wl))
+				}
 			}
 		}
-		cards = append(cards, rendered)
-		cardHeight := lineCount(rendered)
-		clicks = append(clicks, clickRegion{action: "select_suggestion", index: i, x0: 0, y0: lineOffset, x1: cardWidth, y1: lineOffset + cardHeight})
-		lineOffset += cardHeight
+		return applyPanelScroll(lines, m.panelScrolls[FocusLog], w, h)
 	}
 
-	return strings.Join(cards, "\n"), clicks
+	// Detail pane mode: list on left, expanded selected detail on right.
+	listW := w * 45 / 100
+	if listW < 20 {
+		listW = 20
+	}
+	detailW := w - listW - 1
+	if detailW < 20 {
+		detailW = 20
+		listW = w - detailW - 1
+	}
+	if listW < 12 {
+		listW = 12
+	}
+	selected := m.logCursor
+	if selected < 0 {
+		selected = 0
+	}
+	if selected >= len(shown) {
+		selected = len(shown) - 1
+	}
+
+	listLines := []string{sectionHeaderStyle().Render(" List")}
+	for i, e := range shown {
+		icon := e.Icon()
+		summary := firstLine(e.Summary)
+		prefix := "  "
+		st := valueStyle()
+		if i == selected {
+			prefix = " " + accentStyle().Render(">")
+			st = accentStyle()
+		}
+		for j, wl := range wrapText(summary, listW-8) {
+			if j == 0 {
+				listLines = append(listLines, fmt.Sprintf("%s %s %s", prefix, icon, st.Render(wl)))
+			} else {
+				listLines = append(listLines, "    "+st.Render(wl))
+			}
+		}
+	}
+	left := applyPanelScroll(listLines, 0, listW, h)
+
+	sel := shown[selected]
+	detailLines := []string{
+		sectionHeaderStyle().Render(" Detail"),
+		"",
+		mutedStyle().Render(sel.Timestamp.Format("15:04:05")) + " " + valueStyle().Render(sel.Summary),
+	}
+	detailText := strings.TrimSpace(sel.Detail)
+	if detailText == "" {
+		detailText = "(no detail)"
+	}
+	detailLines = append(detailLines, "")
+	for _, wl := range wrapText(detailText, detailW-2) {
+		detailLines = append(detailLines, " "+mutedStyle().Render(wl))
+	}
+	detailLines = append(detailLines, "")
+	detailLines = append(detailLines, mutedStyle().Render(" Enter: collapse  ↑/↓: move"))
+	right := applyPanelScroll(detailLines, 0, detailW, h)
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, left, buildVSep(h), right)
 }
 
-func offsetClickRegions(regions []clickRegion, xOffset, yOffset int) []clickRegion {
-	if len(regions) == 0 {
-		return nil
-	}
-	out := make([]clickRegion, 0, len(regions))
-	for _, region := range regions {
-		region.x0 += xOffset
-		region.x1 += xOffset
-		region.y0 += yOffset
-		region.y1 += yOffset
-		out = append(out, region)
-	}
-	return out
-}
+// ── Helpers ───────────────────────────────────────────────────────────
 
-func translateClickRegions(regions []clickRegion, xOffset, yOffset, scroll, visibleHeight int) []clickRegion {
-	if len(regions) == 0 {
-		return nil
-	}
-	out := make([]clickRegion, 0, len(regions))
-	for _, region := range regions {
-		top := region.y0 - scroll
-		bottom := region.y1 - scroll
-		if bottom <= 0 || top >= visibleHeight {
-			continue
-		}
-		if top < 0 {
-			top = 0
-		}
-		if bottom > visibleHeight {
-			bottom = visibleHeight
-		}
-		out = append(out, clickRegion{
-			action: region.action,
-			index:  region.index,
-			x0:     region.x0 + xOffset,
-			x1:     region.x1 + xOffset,
-			y0:     top + yOffset,
-			y1:     bottom + yOffset,
-		})
-	}
-	return out
-}
-
-func (m Model) padContent(content string, height int) string {
-	lines := strings.Split(content, "\n")
-	for len(lines) < height {
+func applyPanelScroll(lines []string, offset, w, h int) string {
+	for len(lines) < h {
 		lines = append(lines, "")
 	}
-	if len(lines) > height {
-		lines = lines[:height]
+	if offset > len(lines)-h {
+		offset = len(lines) - h
 	}
-	return strings.Join(lines, "\n")
+	if offset < 0 {
+		offset = 0
+	}
+	visible := lines[offset:]
+	if len(visible) > h {
+		visible = visible[:h]
+	}
+	result := make([]string, len(visible))
+	for i, line := range visible {
+		lw := lipgloss.Width(line)
+		if lw < w {
+			result[i] = line + strings.Repeat(" ", w-lw)
+		} else {
+			result[i] = line
+		}
+	}
+	return strings.Join(result, "\n")
 }
 
-func joinLayoutBlocks(blocks []string) string {
-	lines := make([]string, 0, len(blocks)*4)
-	for _, block := range blocks {
-		if block == "" {
-			lines = append(lines, "")
+func padLine(line string, w int) string {
+	if lw := lipgloss.Width(line); lw < w {
+		return line + strings.Repeat(" ", w-lw)
+	}
+	return line
+}
+
+func firstLine(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	s = strings.SplitN(s, "\n", 2)[0]
+	return strings.TrimSpace(s)
+}
+
+// truncStr is kept for backward-compatible tests; V3 never truncates.
+func truncStr(s string, _ int) string {
+	return firstLine(s)
+}
+
+func wrapText(s string, maxW int) []string {
+	if maxW <= 0 {
+		maxW = 40
+	}
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	rawLines := strings.Split(s, "\n")
+	var result []string
+	for _, line := range rawLines {
+		if line == "" {
+			result = append(result, "")
 			continue
 		}
-		lines = append(lines, strings.Split(block, "\n")...)
+		runes := []rune(line)
+		for len(runes) > maxW {
+			result = append(result, string(runes[:maxW]))
+			runes = runes[maxW:]
+		}
+		result = append(result, string(runes))
 	}
-	return strings.Join(lines, "\n")
+	if len(result) == 0 {
+		result = []string{""}
+	}
+	return result
 }
 
-func truncateLine(text string, width int) string {
+func renderProgressBar(done, total, width int) string {
 	if width <= 0 {
-		return text
+		width = 10
 	}
-	return runewidth.Truncate(text, width, "")
+	if total == 0 {
+		return mutedStyle().Render(strings.Repeat("─", width))
+	}
+	filled := (done * width) / total
+	if filled > width {
+		filled = width
+	}
+	t := ts()
+	pct := done * 100 / total
+	fillClr := t.Success
+	if pct < 50 {
+		fillClr = t.Warning
+	}
+	if done == total {
+		fillClr = t.Success
+	}
+	fillStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(fillClr))
+	emptyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(t.Border))
+	return fillStyle.Render(strings.Repeat("█", filled)) + emptyStyle.Render(strings.Repeat("░", width-filled))
 }
 
-func analysisInProgress(text string) bool {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return false
+func splitAtRunePos(text string, pos int) (string, string) {
+	n := utf8.RuneCountInString(text)
+	if pos < 0 {
+		pos = 0
 	}
-	for _, candidate := range []string{
-		i18n.T("analysis.analyzing"),
-		i18n.T("analysis.analyzing_repo"),
-		i18n.T("analysis.reanalyzing"),
-		i18n.T("analysis.in_progress_status"),
-	} {
-		if text == strings.TrimSpace(candidate) {
-			return true
+	if pos > n {
+		pos = n
+	}
+	runes := []rune(text)
+	return string(runes[:pos]), string(runes[pos:])
+}
+
+func clampInt(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+func (m Model) renderCommandPalette(w int) string {
+	lines := []string{
+		sectionHeaderStyle().Render(" ◆ Command Palette"),
+		"",
+		keyStyle().Render(" Query: ") + valueStyle().Render(m.paletteQuery),
+		"",
+	}
+	items := m.filteredCommandPaletteItems()
+	if len(items) == 0 {
+		lines = append(lines, mutedStyle().Render("  (no command matches)"))
+	} else {
+		max := len(items)
+		if max > 8 {
+			max = 8
+		}
+		for i := 0; i < max; i++ {
+			prefix := "  "
+			style := valueStyle()
+			if i == m.paletteIdx {
+				prefix = " " + accentStyle().Render(">")
+				style = accentStyle()
+			}
+			for j, wl := range wrapText(items[i], w-6) {
+				if j == 0 {
+					lines = append(lines, prefix+" "+style.Render(wl))
+				} else {
+					lines = append(lines, "    "+style.Render(wl))
+				}
+			}
 		}
 	}
-	return false
+	lines = append(lines, "")
+	lines = append(lines, mutedStyle().Render(" Enter: select   Tab: autofill   Esc: close   Ctrl+P: toggle"))
+	return applyPanelScroll(lines, 0, w, 12)
 }
 
-func analysisHasFailure(text string) bool {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return false
+func (m Model) renderHelpOverlay(w int) string {
+	lines := []string{
+		sectionHeaderStyle().Render(" ◆ Help"),
+		"",
+		valueStyle().Render(" 全局"),
+		mutedStyle().Render("  ?: 显示/隐藏帮助"),
+		mutedStyle().Render("  Tab: 切换焦点区"),
+		mutedStyle().Render("  Esc: 退出输入焦点或关闭帮助"),
+		mutedStyle().Render("  /help: 打开帮助"),
+		mutedStyle().Render("  Ctrl+P 或 /palette: 打开命令面板"),
+		"",
+		valueStyle().Render(" 滚动"),
+		mutedStyle().Render("  ↑/↓ 或 j/k: 行滚动"),
+		mutedStyle().Render("  PgUp/PgDn: 页滚动"),
+		mutedStyle().Render("  Ctrl+u / Ctrl+d: 半页滚动"),
+		mutedStyle().Render("  鼠标滚轮: 当前区域滚动"),
+		"",
+		valueStyle().Render(" 执行"),
+		mutedStyle().Render("  /goal <text>: 提交目标"),
+		mutedStyle().Render("  /run accept | /run all: 执行建议"),
+		mutedStyle().Render("  /mode manual|auto|cruise: 切模式"),
+		mutedStyle().Render("  /creative: 手动触发创造流程"),
+		mutedStyle().Render("  /test: LLM 连通性探测"),
+		mutedStyle().Render("  /failures: 查看失败分类看板"),
+		mutedStyle().Render("  /replay: 生成最近执行重放脚本"),
 	}
-	lower := strings.ToLower(text)
-	errorPrefix := strings.ToLower(strings.TrimSpace(strings.Split(i18n.T("analysis.error_prefix"), "%s")[0]))
-	return strings.Contains(lower, errorPrefix) ||
-		strings.Contains(lower, "ai error:") ||
-		strings.Contains(lower, "invalid structured response") ||
-		strings.Contains(lower, "could not be parsed") ||
-		strings.Contains(lower, "empty response")
-}
-
-func repositoryLooksClean(state *status.GitState) bool {
-	if state == nil {
-		return false
-	}
-	if len(state.WorkingTree) > 0 || len(state.StagingArea) > 0 {
-		return false
-	}
-	if state.MergeInProgress || state.RebaseInProgress || state.CherryInProgress || state.BisectInProgress {
-		return false
-	}
-	ahead, behind := state.LocalBranch.Ahead, state.LocalBranch.Behind
-	if state.UpstreamState != nil {
-		ahead = state.UpstreamState.Ahead
-		behind = state.UpstreamState.Behind
-	}
-	if ahead > 0 || behind > 0 {
-		return false
-	}
-	for _, remote := range state.RemoteInfos {
-		if remote.FetchURL != "" && !remote.FetchURLValid {
-			return false
-		}
-		if remote.PushURL != "" && !remote.PushURLValid {
-			return false
-		}
-		if remote.ReachabilityChecked && !remote.Reachable {
-			return false
-		}
-	}
-	return true
-}
-
-func statusIcon(code git.FileStatusCode) string {
-	switch code {
-	case git.StatusAdded:
-		return "+"
-	case git.StatusModified:
-		return "~"
-	case git.StatusDeleted:
-		return "-"
-	case git.StatusRenamed:
-		return ">"
-	case git.StatusUntracked:
-		return "?"
-	default:
-		return " "
-	}
-}
-
-func statusStyle(code git.FileStatusCode) lipgloss.Style {
-	switch code {
-	case git.StatusAdded:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
-	case git.StatusModified:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-	case git.StatusDeleted:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-	case git.StatusUntracked:
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	default:
-		return lipgloss.NewStyle()
-	}
+	return applyPanelScroll(lines, 0, w, 14)
 }

@@ -19,8 +19,8 @@ const (
 	ProviderOpenAI   = "openai"
 	ProviderDeepSeek = "deepseek"
 
-	defaultOpenAIBaseURL   = "https://api.openai.com/v1"
-	defaultDeepSeekBaseURL = "https://api.deepseek.com"
+	defaultOpenAIBaseURL   = llm.DefaultOpenAIURL
+	defaultDeepSeekBaseURL = llm.DefaultDeepSeekURL
 	defaultRequestTimeout  = 120 * time.Second
 )
 

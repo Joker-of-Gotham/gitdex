@@ -141,31 +141,38 @@ Build and run on Windows:
 ## First 3 Minutes
 
 1. Start `gitdex` inside a real Git repository.
-2. Choose your UI language on first launch.
-3. If you use a local provider, pick a primary model and optionally a verifier model. If you use OpenAI or DeepSeek, configure the model in `.gitdexrc` or `GITDEX_*` env vars first.
-4. Press `o` or `O` to cycle `Workflow`, `Timeline`, `Context`, `Memory`, `Raw`, `Result`, and `Thinking`.
-5. Use `[` and `]` to switch scroll focus between the main column, Git Areas, and Observability. Use mouse wheel or `up/down/pgup/pgdn` to scroll the active pane.
-6. Press `g` to set a goal or `f` to choose a workflow.
-7. Accept a suggestion with `y` and verify the result appears in `Timeline` and `Result`.
-8. Press `L` any time to reopen language settings.
+2. The system auto-detects your Ollama models and begins analysis.
+3. Press `Tab` to focus the input bar, then type `/help` to see all commands.
+4. Use `/goal <description>` to set a goal, or `/run accept` / `/run all` (manual mode) to execute suggestions.
+5. Press `Esc` to open the configuration page, then navigate to change model, mode, language, or theme.
+6. Use `[` and `]` to switch focus between panels, then `PgUp`/`PgDn`/mouse wheel to scroll.
 
-## Keyboard Shortcuts
+## Slash Commands
 
-- `y`: accept current suggestion
-- `n`: skip current suggestion
-- `w`: show or collapse explanation
-- `z`: switch focus/full AI mode
-- `r`: refresh state and re-analyze
-- `l`: expand or collapse the operation log
-- `g`: set active goal
-- `f`: choose a workflow goal
-- `L`: reopen language settings
-- `o` / `O`: cycle observability inspectors
-- `[` / `]`: switch scroll focus across panes
-- `up` / `down` / `PgUp` / `PgDn`: scroll the focused pane
-- `t`: toggle reasoning panel
-- `Tab` / `Shift+Tab`: move across suggestions
-- `q`: quit
+All interaction uses `/` commands typed in the input bar:
+
+- `/goal <description>` — set a new goal for Gitdex to achieve
+- `/run accept` — execute the next pending suggestion (manual mode)
+- `/run all` — execute all pending suggestions (manual mode)
+- `/mode manual|auto|cruise` — switch operation mode
+- `/interval <seconds>` — set cruise patrol interval (min 60s)
+- `/creative` — manually trigger the creative flow
+- `/config` — open configuration page (also accessible via `Esc`)
+- `/analyze` — re-run analysis
+- `/test` — run LLM connectivity tests
+- `/clear` — clear the log panel
+- `/help` — show command list
+
+## Navigation Keys
+
+- `Tab` / `Shift+Tab` — toggle input bar focus
+- `[` / `]` — switch focus across panels (Suggestions, Git, Goals, Log)
+- `up` / `down` / `PgUp` / `PgDn` — scroll the focused panel
+- `Ctrl+U` / `Ctrl+D` — half-page scroll
+- Mouse wheel — scroll the panel under cursor
+- `Esc` — open/close configuration page
+- `r` — refresh state and re-analyze
+- `q` / `Ctrl+C` — quit
 
 ## Documentation
 
@@ -177,6 +184,8 @@ Build and run on Windows:
 - [Deployment design in Chinese](docs/DEPLOYMENT_zh.md)
 - [Publishing to GitHub](docs/PUBLISHING_TO_GITHUB.md)
 - [Publishing guide in Chinese](docs/PUBLISHING_TO_GITHUB_zh.md)
+- [V3 Big Bang cutover runbook](docs/BIG_BANG_CUTOVER_RUNBOOK.md)
+- [V3 To-Do verification audit](docs/V3_TODO_VERIFICATION_AUDIT.md)
 
 ## Configuration
 
@@ -195,6 +204,19 @@ Compatibility reads remain enabled for:
 - legacy env prefix `GITMANUAL_*`
 
 See [configs/example.gitdexrc](configs/example.gitdexrc) for a project-level example.
+
+Adapter binary overrides (cross-platform robustness):
+
+```yaml
+adapters:
+  git:
+    enabled: true
+    binary: "git"
+  github:
+    gh:
+      enabled: true
+      binary: "gh"
+```
 
 Minimal cloud-provider examples:
 

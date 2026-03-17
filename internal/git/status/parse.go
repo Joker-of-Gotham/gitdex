@@ -181,11 +181,12 @@ func parseRenamedEntry(line string) (*git.FileStatus, error) {
 	xy := parts[0]
 	pathPart := parts[8]
 
-	// pathPart is "path\torigPath" or "origPath\tpath" - spec says path then origPath, TAB sep
+	// porcelain v2 spec: <path><TAB><origPath>
+	// path = destination (renamed-to), origPath = source (renamed-from)
 	var path, origPath string
 	if idx := strings.Index(pathPart, "\t"); idx >= 0 {
-		path = unquotePath(pathPart[idx+1:])   // target (after TAB)
-		origPath = unquotePath(pathPart[:idx]) // source (before TAB)
+		path = unquotePath(pathPart[:idx])      // destination (before TAB)
+		origPath = unquotePath(pathPart[idx+1:]) // source (after TAB)
 	} else {
 		path = unquotePath(pathPart)
 	}

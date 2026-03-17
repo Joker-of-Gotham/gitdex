@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("build", "release", "assets", "test", "clean")]
+    [ValidateSet("build", "release", "assets", "test", "clean", "cutover-preflight")]
     [string]$Target = "build"
 )
 
@@ -80,5 +80,9 @@ switch ($Target) {
     "clean" {
         if (Test-Path $BinDir) { Remove-Item -Recurse -Force $BinDir }
         Write-Host "Cleaned $BinDir" -ForegroundColor Green
+    }
+    "cutover-preflight" {
+        & "$PSScriptRoot/scripts/v3-cutover-preflight.ps1"
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
 }

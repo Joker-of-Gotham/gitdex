@@ -18,3 +18,10 @@ func TestNewCLIExecutorAndVersion(t *testing.T) {
 		t.Fatalf("unexpected version output: %s", version)
 	}
 }
+
+func TestNewCLIExecutorWithBinary_Invalid(t *testing.T) {
+	_, err := NewCLIExecutorWithBinary("definitely-not-a-real-git-binary")
+	if err == nil {
+		t.Fatal("expected error for invalid binary")
+	}
+}

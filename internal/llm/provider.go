@@ -1,6 +1,9 @@
 package llm
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 type ModelRole string
 
@@ -49,3 +52,21 @@ type LLMProvider interface {
 	SetModel(name string)
 	SetModelForRole(role ModelRole, name string)
 }
+
+var ErrNoProvider = fmt.Errorf("no LLM provider configured — please configure one via /config or config.yaml")
+
+// NopProvider is a nil-safe fallback that returns ErrNoProvider for every call.
+type NopProvider struct{}
+
+func (NopProvider) Name() string                                                       { return "none" }
+func (NopProvider) Generate(_ context.Context, _ GenerateRequest) (*GenerateResponse, error) {
+	return nil, ErrNoProvider
+}
+func (NopProvider) GenerateStream(_ context.Context, _ GenerateRequest) (<-chan StreamChunk, error) {
+	return nil, ErrNoProvider
+}
+func (NopProvider) IsAvailable(_ context.Context) bool                   { return false }
+func (NopProvider) ModelInfo(_ context.Context) (*ModelInfo, error)      { return nil, ErrNoProvider }
+func (NopProvider) ListModels(_ context.Context) ([]ModelInfo, error)    { return nil, ErrNoProvider }
+func (NopProvider) SetModel(_ string)                                    {}
+func (NopProvider) SetModelForRole(_ ModelRole, _ string)                {}

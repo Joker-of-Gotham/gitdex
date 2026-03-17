@@ -23,9 +23,18 @@ type CLIExecutor struct {
 
 // NewCLIExecutor creates a new CLIExecutor by locating the git binary.
 func NewCLIExecutor() (*CLIExecutor, error) {
-	path, err := exec.LookPath("git")
+	return NewCLIExecutorWithBinary("git")
+}
+
+// NewCLIExecutorWithBinary creates a new CLIExecutor using the specified git binary.
+func NewCLIExecutorWithBinary(binary string) (*CLIExecutor, error) {
+	binary = strings.TrimSpace(binary)
+	if binary == "" {
+		binary = "git"
+	}
+	path, err := exec.LookPath(binary)
 	if err != nil {
-		return nil, fmt.Errorf("git not found: %w", err)
+		return nil, fmt.Errorf("%s not found: %w", binary, err)
 	}
 	return &CLIExecutor{gitPath: path}, nil
 }

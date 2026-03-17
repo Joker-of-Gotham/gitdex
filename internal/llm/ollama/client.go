@@ -16,24 +16,25 @@ import (
 	"github.com/Joker-of-Gotham/gitdex/internal/llm"
 )
 
-const defaultBaseURL = "http://localhost:11434"
+const defaultBaseURL = "http://localhost:11434" // canonical default; also defined as config.DefaultOllamaEndpoint
 const reconnectThreshold = time.Second
-const defaultModel = "llama2"
+const defaultModel = "qwen2.5:3b" // canonical default; also defined as config.DefaultModel
 const defaultRequestTimeout = 30 * time.Second
 const availabilityTimeout = 3 * time.Second
 const modelMetadataTimeout = 10 * time.Second
-const generateTimeout = 90 * time.Second
+const defaultGenerateTimeout = 300 * time.Second // 5 minutes default for generation
 
 // OllamaClient implements llm.LLMProvider for Ollama local models.
 type OllamaClient struct {
-	baseURL       string
-	model         string
-	primary       string
-	secondary     string
-	contextLength int // num_ctx to use; 0 = use defaultContextLength
-	httpClient    *http.Client
-	lastOK        time.Time
-	mu            sync.RWMutex
+	baseURL        string
+	model          string
+	primary        string
+	secondary      string
+	contextLength  int           // num_ctx to use; 0 = use defaultContextLength
+	generateTimeout time.Duration // configurable timeout for generation requests
+	httpClient     *http.Client
+	lastOK         time.Time
+	mu             sync.RWMutex
 }
 
 const defaultContextLength = 32768
@@ -52,10 +53,11 @@ func NewClient(baseURL, model string, contextLength ...int) *OllamaClient {
 		ctxLen = contextLength[0]
 	}
 	return &OllamaClient{
-		baseURL:       baseURL,
-		model:         model,
-		primary:       model,
-		contextLength: ctxLen,
+		baseURL:         baseURL,
+		model:           model,
+		primary:         model,
+		contextLength:   ctxLen,
+		generateTimeout: defaultGenerateTimeout,
 		httpClient: &http.Client{
 			Transport: &http.Transport{
 				MaxIdleConns:    10,
@@ -64,6 +66,22 @@ func NewClient(baseURL, model string, contextLength ...int) *OllamaClient {
 		},
 		lastOK: time.Time{},
 	}
+}
+
+// SetGenerateTimeout sets a custom timeout for LLM generation requests.
+func (c *OllamaClient) SetGenerateTimeout(d time.Duration) {
+	c.mu.Lock()
+	c.generateTimeout = d
+	c.mu.Unlock()
+}
+
+func (c *OllamaClient) resolveGenerateTimeout() time.Duration {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.generateTimeout > 0 {
+		return c.generateTimeout
+	}
+	return defaultGenerateTimeout
 }
 
 func (c *OllamaClient) Name() string {
@@ -157,7 +175,7 @@ func (c *OllamaClient) IsAvailable(ctx context.Context) bool {
 
 // Generate sends a prompt to POST /api/chat and returns the full response.
 func (c *OllamaClient) Generate(ctx context.Context, req llm.GenerateRequest) (*llm.GenerateResponse, error) {
-	ctx, cancel := withTimeoutIfMissing(ctx, generateTimeout)
+	ctx, cancel := withTimeoutIfMissing(ctx, c.resolveGenerateTimeout())
 	defer cancel()
 
 	model := c.resolveModel(req)
@@ -186,7 +204,12 @@ func (c *OllamaClient) Generate(ctx context.Context, req llm.GenerateRequest) (*
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("ollama: chat failed: status %d", resp.StatusCode)
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		detail := strings.TrimSpace(string(errBody))
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, fmt.Errorf("ollama: model %q not found (404). Run 'ollama pull %s' to download it. %s", model, model, detail)
+		}
+		return nil, fmt.Errorf("ollama: chat failed: status %d: %s", resp.StatusCode, detail)
 	}
 	rawBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -194,7 +217,13 @@ func (c *OllamaClient) Generate(ctx context.Context, req llm.GenerateRequest) (*
 	}
 	var out OllamaChatResponse
 	if err := json.Unmarshal(rawBody, &out); err != nil {
-		return nil, fmt.Errorf("ollama: decode response: %w", err)
+		// Ollama may still return NDJSON despite stream:false — parse line by line.
+		merged, mergeErr := mergeNDJSON(rawBody)
+		if mergeErr != nil {
+			return nil, fmt.Errorf("ollama: decode response: %w (raw length %d)", err, len(rawBody))
+		}
+		c.recordSuccess()
+		return merged, nil
 	}
 	c.recordSuccess()
 	return &llm.GenerateResponse{
@@ -205,9 +234,46 @@ func (c *OllamaClient) Generate(ctx context.Context, req llm.GenerateRequest) (*
 	}, nil
 }
 
+// mergeNDJSON handles the case where Ollama returns line-delimited JSON
+// (streaming format) despite stream:false. It concatenates all chunk texts.
+func mergeNDJSON(data []byte) (*llm.GenerateResponse, error) {
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	var text strings.Builder
+	var thinking strings.Builder
+	var evalCount int
+	parsed := 0
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var chunk OllamaChatStreamChunk
+		if err := json.Unmarshal(line, &chunk); err != nil {
+			continue
+		}
+		parsed++
+		text.WriteString(chunk.Message.Content)
+		if chunk.Message.Thinking != "" {
+			thinking.WriteString(chunk.Message.Thinking)
+		}
+		if chunk.Done {
+			evalCount = chunk.EvalCount
+		}
+	}
+	if parsed == 0 {
+		return nil, fmt.Errorf("no valid JSON objects found")
+	}
+	return &llm.GenerateResponse{
+		Text:       strings.TrimSpace(text.String()),
+		Thinking:   strings.TrimSpace(thinking.String()),
+		Raw:        string(data),
+		TokenCount: evalCount,
+	}, nil
+}
+
 // GenerateStream sends a prompt to POST /api/chat with stream=true and yields chunks via channel.
 func (c *OllamaClient) GenerateStream(ctx context.Context, req llm.GenerateRequest) (<-chan llm.StreamChunk, error) {
-	ctx, cancel := withTimeoutIfMissing(ctx, generateTimeout)
+	ctx, cancel := withTimeoutIfMissing(ctx, c.resolveGenerateTimeout())
 
 	model := c.resolveModel(req)
 	messages := []OllamaChatMessage{}
@@ -234,8 +300,13 @@ func (c *OllamaClient) GenerateStream(ctx context.Context, req llm.GenerateReque
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		resp.Body.Close()
-		return nil, fmt.Errorf("ollama: chat stream failed: status %d", resp.StatusCode)
+		detail := strings.TrimSpace(string(errBody))
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, fmt.Errorf("ollama: model %q not found (404). Run 'ollama pull %s' to download it. %s", model, model, detail)
+		}
+		return nil, fmt.Errorf("ollama: chat stream failed: status %d: %s", resp.StatusCode, detail)
 	}
 	ch := make(chan llm.StreamChunk, 16)
 	go func() {
@@ -282,7 +353,11 @@ func (c *OllamaClient) ModelInfo(ctx context.Context) (*llm.ModelInfo, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("ollama: show failed: status %d", resp.StatusCode)
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, fmt.Errorf("ollama: model %q not found. Run 'ollama pull %s'", c.model, c.model)
+		}
+		return nil, fmt.Errorf("ollama: show failed: status %d: %s", resp.StatusCode, strings.TrimSpace(string(errBody)))
 	}
 	var out OllamaShowResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {

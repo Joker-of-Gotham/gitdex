@@ -144,8 +144,8 @@ type PlatformExecInfo struct {
 type Suggestion struct {
 	ID          string
 	Action      string
-	Command     []string
-	Steps       [][]string // Chained commands for multi-step operations
+	Command     string
+	Steps       []string // Chained commands for multi-step operations
 	Reason      string
 	RiskLevel   RiskLevel
 	Impact      ImpactPreview
@@ -171,7 +171,7 @@ type ImpactPreview struct {
 }
 
 type ExecutionResult struct {
-	Command  []string
+	Command  string
 	Stdout   string
 	Stderr   string
 	ExitCode int

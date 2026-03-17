@@ -17,7 +17,7 @@ RELEASE_BIN := $(BIN_DIR)/$(APP_NAME)-$(GOOS)-$(GOARCH)$(EXT)
 
 LDFLAGS := -ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: build release release-assets test race clean fmt lint
+.PHONY: build release release-assets test race clean fmt lint cutover-preflight
 
 build:
 	@mkdir -p $(BIN_DIR)
@@ -46,3 +46,6 @@ fmt:
 
 lint:
 	go vet ./...
+
+cutover-preflight:
+	./scripts/v3-cutover-preflight.sh

@@ -31,7 +31,7 @@ func TestLoad_WithDefaults(t *testing.T) {
 	assert.Equal(t, "http://localhost:11434", loaded.LLM.Endpoint)
 	assert.Equal(t, 300, loaded.Sync.AutoFetchInterval)
 	assert.True(t, loaded.Automation.Enabled)
-	assert.Equal(t, 300, loaded.Automation.MonitorInterval)
+	assert.Equal(t, 900, loaded.Automation.MonitorInterval)
 	assert.Equal(t, 8, loaded.Automation.MaxAutoSteps)
 	assert.Empty(t, loaded.Automation.Schedules)
 	assert.True(t, loaded.Automation.ApprovalPolicy.RequireForPartial)
@@ -39,12 +39,14 @@ func TestLoad_WithDefaults(t *testing.T) {
 	assert.True(t, loaded.Automation.Concurrency.Enabled)
 	assert.Equal(t, 3, loaded.Automation.Escalation.FailureThreshold)
 	assert.Equal(t, 2, loaded.Automation.DeadLetter.PauseAfter)
+	assert.True(t, loaded.Adapters.Git.Enabled)
+	assert.Equal(t, "git", loaded.Adapters.Git.Binary)
 	assert.True(t, loaded.Adapters.GitHub.GH.Enabled)
 	assert.Equal(t, "gh", loaded.Adapters.GitHub.GH.Binary)
 	assert.Equal(t, "default", loaded.Adapters.GitHub.Browser.Driver)
 	assert.Equal(t, "default", loaded.Adapters.GitLab.Browser.Driver)
 	assert.Equal(t, "default", loaded.Adapters.Bitbucket.Browser.Driver)
-	assert.Equal(t, "dark", loaded.Theme.Name)
+	assert.Equal(t, "catppuccin", loaded.Theme.Name)
 	assert.Equal(t, "auto", loaded.I18n.Language)
 }
 
@@ -322,7 +324,7 @@ func TestValidate_InvalidMode(t *testing.T) {
 	c := &Config{
 		Suggestion: SuggestionConfig{Mode: "invalid", Language: "auto"},
 		I18n:       I18nConfig{Language: "auto"},
-		Theme:      ThemeConfig{Name: "dark"},
+		Theme:      ThemeConfig{Name: "catppuccin"},
 	}
 	err := Validate(c)
 	assert.Error(t, err)
@@ -372,6 +374,15 @@ func TestValidate_InvalidAdapterBinary(t *testing.T) {
 	assert.Contains(t, err.Error(), "adapters.github.gh.binary")
 }
 
+func TestValidate_InvalidGitAdapterBinary(t *testing.T) {
+	c := DefaultConfig()
+	c.Adapters.Git.Enabled = true
+	c.Adapters.Git.Binary = ""
+	err := Validate(c)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "adapters.git.binary")
+}
+
 func TestResolveRoleAPIKey_FromDefaultEnv(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "secret-key")
 
@@ -382,6 +393,44 @@ func TestResolveRoleAPIKey_FromDefaultEnv(t *testing.T) {
 	assert.Equal(t, "secret-key", ResolveRoleAPIKey(role))
 }
 
+func TestResolveRoleAPIKey_FromAPIKeyEnvLiteralFallback(t *testing.T) {
+	role := ModelConfig{
+		Provider:  "deepseek",
+		APIKeyEnv: "sk-7888b720f4214e448ee7f8808719eb55",
+	}
+
+	assert.Equal(t, "sk-7888b720f4214e448ee7f8808719eb55", ResolveRoleAPIKey(role))
+}
+
+func TestResolveRoleAPIKey_APIKeyEnvNameWithoutEnvValue(t *testing.T) {
+	t.Setenv("DEEPSEEK_API_KEY", "")
+	role := ModelConfig{
+		Provider:  "deepseek",
+		APIKeyEnv: "DEEPSEEK_API_KEY",
+	}
+
+	assert.Equal(t, "", ResolveRoleAPIKey(role))
+}
+
+func TestResolveRoleAPIKey_StripsQuotedEnvName(t *testing.T) {
+	t.Setenv("DEEPSEEK_API_KEY", "quoted-secret")
+	role := ModelConfig{
+		Provider:  "deepseek",
+		APIKeyEnv: "\"DEEPSEEK_API_KEY\"",
+	}
+
+	assert.Equal(t, "quoted-secret", ResolveRoleAPIKey(role))
+}
+
+func TestResolveRoleAPIKey_DeepSeekDskDashLiteralFallback(t *testing.T) {
+	role := ModelConfig{
+		Provider:  "deepseek",
+		APIKeyEnv: "dsk-1234567890abcdefghijklmnopqrstuvwxyz",
+	}
+
+	assert.Equal(t, "dsk-1234567890abcdefghijklmnopqrstuvwxyz", ResolveRoleAPIKey(role))
+}
+
 func configureConfigEnv(t *testing.T) {
 	t.Helper()
 
@@ -390,4 +439,28 @@ func configureConfigEnv(t *testing.T) {
 	t.Setenv("USERPROFILE", root)
 	t.Setenv("APPDATA", root)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, ".config"))
+}
+
+func TestLoad_SetsVersionAndTrace(t *testing.T) {
+	configureConfigEnv(t)
+	dir := t.TempDir()
+	oldWd, _ := os.Getwd()
+	require.NoError(t, os.Chdir(dir))
+	defer func() { _ = os.Chdir(oldWd) }()
+
+	loaded, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, CurrentConfigVersion, loaded.Version)
+
+	trace := LastLoadTrace()
+	require.NotNil(t, trace)
+	assert.True(t, trace.DefaultsApplied)
+}
+
+func TestSensitiveFieldWarnings(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.LLM.Primary.APIKey = "sk-test"
+	cfg.LLM.Secondary.APIKeyEnv = "sk-literal-1234567890abcdefghijklmnopqrstuvwxyz"
+	warns := SensitiveFieldWarnings(cfg)
+	require.NotEmpty(t, warns)
 }

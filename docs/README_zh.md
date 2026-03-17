@@ -25,6 +25,7 @@
 | 看一次完整操作演示 | [OPERATION_DEMO_zh.md](OPERATION_DEMO_zh.md) |
 | 查看部署设计 | [DEPLOYMENT_zh.md](DEPLOYMENT_zh.md) |
 | 按步骤发布到 GitHub | [PUBLISHING_TO_GITHUB_zh.md](PUBLISHING_TO_GITHUB_zh.md) |
+| 查看 V3 一次性切换手册 | [BIG_BANG_CUTOVER_RUNBOOK.md](BIG_BANG_CUTOVER_RUNBOOK.md) |
 | 阅读英文总览 | [../README.md](../README.md) |
 
 ## 当前产品面
@@ -116,3 +117,18 @@ make build
 - 家目录下旧的 `.gitmanual/` 记忆文件
 
 项目级配置示例见 [../configs/example.gitdexrc](../configs/example.gitdexrc)。
+
+为提升跨平台鲁棒性，建议显式配置命令适配器二进制：
+
+```yaml
+adapters:
+  git:
+    enabled: true
+    binary: "git"
+  github:
+    gh:
+      enabled: true
+      binary: "gh"
+```
+
+V3 规划完成性审计见 [V3_TODO_VERIFICATION_AUDIT.md](V3_TODO_VERIFICATION_AUDIT.md)。

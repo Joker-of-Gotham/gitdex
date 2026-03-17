@@ -105,6 +105,9 @@ automation:
   #     interval: 1800
 
 adapters:
+  git:
+    enabled: true
+    binary: "git"
   github:
     gh:
       enabled: true

@@ -150,13 +150,13 @@ func TestParseStatusV2_Ignored(t *testing.T) {
 }
 
 func TestParseStatusV2_Renamed(t *testing.T) {
-	// Format: 2 <XY> <sub> ... <X><score> <origPath><TAB><path>
-	out := `2 R. N... 100644 100644 100644 111111 222222 R100 oldname.go	newname.go
+	// porcelain v2 spec: 2 <XY> <sub> ... <X><score> <path><TAB><origPath>
+	// path = destination (new name), origPath = source (old name)
+	out := `2 R. N... 100644 100644 100644 111111 222222 R100 newname.go	oldname.go
 `
 	state, err := ParseStatusV2(out)
 	require.NoError(t, err)
 	require.Len(t, state.StagingArea, 1)
-	// path is target (newname.go), origPath is source (oldname.go)
 	assert.Equal(t, "newname.go", state.StagingArea[0].Path)
 	assert.Equal(t, "oldname.go", state.StagingArea[0].OrigPath)
 	assert.Equal(t, git.StatusRenamed, state.StagingArea[0].StagingCode)

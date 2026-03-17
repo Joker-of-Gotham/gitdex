@@ -22,13 +22,19 @@ type ProviderSpec struct {
 	RecommendedModels []string
 }
 
+const (
+	DefaultOllamaURL  = "http://localhost:11434"
+	DefaultOpenAIURL  = "https://api.openai.com/v1"
+	DefaultDeepSeekURL = "https://api.deepseek.com"
+)
+
 func ProviderSpecs() []ProviderSpec {
 	return []ProviderSpec{
 		{
 			ID:             "ollama",
 			Label:          "Ollama",
 			Kind:           ProviderUILocalModels,
-			DefaultBaseURL: "http://localhost:11434",
+			DefaultBaseURL: DefaultOllamaURL,
 			DocsURL:        "https://ollama.com/blog/thinking",
 			RecommendedModels: []string{
 				"qwen2.5:3b",
@@ -40,7 +46,7 @@ func ProviderSpecs() []ProviderSpec {
 			ID:             "openai",
 			Label:          "OpenAI",
 			Kind:           ProviderUICloudConfig,
-			DefaultBaseURL: "https://api.openai.com/v1",
+			DefaultBaseURL: DefaultOpenAIURL,
 			APIKeyEnv:      "OPENAI_API_KEY",
 			DocsURL:        "https://platform.openai.com/docs/api-reference/responses",
 			RecommendedModels: []string{
@@ -53,7 +59,7 @@ func ProviderSpecs() []ProviderSpec {
 			ID:             "deepseek",
 			Label:          "DeepSeek",
 			Kind:           ProviderUICloudConfig,
-			DefaultBaseURL: "https://api.deepseek.com",
+			DefaultBaseURL: DefaultDeepSeekURL,
 			APIKeyEnv:      "DEEPSEEK_API_KEY",
 			DocsURL:        "https://api-docs.deepseek.com/",
 			RecommendedModels: []string{

@@ -1,0 +1,23 @@
+name: cutover-drill
+
+on:
+  workflow_dispatch:
+
+jobs:
+  preflight:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run preflight (Unix)
+        if: runner.os != 'Windows'
+        run: chmod +x ./scripts/v3-cutover-preflight.sh && ./scripts/v3-cutover-preflight.sh --skip-network
+      - name: Run preflight (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/v3-cutover-preflight.ps1 -SkipNetwork

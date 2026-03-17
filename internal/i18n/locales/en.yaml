@@ -143,7 +143,7 @@ areas:
 
 thinking:
   title: "Reasoning"
-  truncated: "... (reasoning truncated)"
+  truncated: "(reasoning truncated)"
   unavailable: "The current provider did not expose reasoning text."
   text: "Reasoning text:"
 

@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// EntryType describes the kind of timeline event.
+// EntryType categorises an operation log entry.
 type EntryType string
 
 const (
@@ -41,22 +41,22 @@ func (e Entry) Normalized(now time.Time) Entry {
 func (e Entry) Icon() string {
 	switch e.Type {
 	case EntryLLMStart:
-		return "[AI]"
+		return "⟳"
 	case EntryLLMOutput:
-		return "[out]"
+		return "✦"
 	case EntryLLMError:
-		return "[err]"
+		return "✗"
 	case EntryCmdExec:
-		return "[run]"
+		return "▸"
 	case EntryCmdSuccess:
-		return "[ok]"
+		return "✓"
 	case EntryCmdFail:
-		return "[x]"
+		return "✗"
 	case EntryStateRefresh:
-		return "[sync]"
+		return "↻"
 	case EntryUserAction:
-		return "[ui]"
+		return "▹"
 	default:
-		return "[.]"
+		return "·"
 	}
 }
