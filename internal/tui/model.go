@@ -13,9 +13,9 @@ import (
 	"github.com/Joker-of-Gotham/gitdex/internal/tui/components/footer"
 	"github.com/Joker-of-Gotham/gitdex/internal/tui/components/header"
 	"github.com/Joker-of-Gotham/gitdex/internal/tui/components/sidebar"
+	"github.com/Joker-of-Gotham/gitdex/internal/tui/components/table"
 	"github.com/Joker-of-Gotham/gitdex/internal/tui/components/tabs"
 	"github.com/Joker-of-Gotham/gitdex/internal/tui/oplog"
-	"github.com/Joker-of-Gotham/gitdex/internal/tui/theme"
 )
 
 // Page represents the current screen/page in the TUI.
@@ -224,6 +224,7 @@ type Model struct {
 	footerComp footer.Model
 	sidebarComp sidebar.Model
 	tabsComp   tabs.Model
+	agentTable table.Model
 
 	orchestrator *flow.Orchestrator
 	store        *dotgitdex.Manager
@@ -298,8 +299,8 @@ func NewModel(orch *flow.Orchestrator, store *dotgitdex.Manager, mode, language 
 		interval = 900
 	}
 
-	th := theme.Current
-	styles := tuictx.InitStyles(th)
+	ctx := tuictx.New()
+	ctx.Mode = mode
 
 	m := Model{
 		orchestrator:    orch,
@@ -314,14 +315,16 @@ func NewModel(orch *flow.Orchestrator, store *dotgitdex.Manager, mode, language 
 		configInfo:      cfg,
 		cruiseIntervalS: interval,
 		headerComp:      header.New(),
-		footerComp:      footer.New(),
-		sidebarComp:     sidebar.New(),
-		tabsComp:        tabs.New([]string{"Maintain", "Goal", "Creative"}),
+		footerComp:      footer.New(ctx),
+		sidebarComp:     sidebar.New(ctx),
+		tabsComp:        tabs.New(ctx),
+		agentTable:      table.New(ctx, []table.Column{
+			{Title: "Status", Width: 10},
+			{Title: "Tool", Width: 12},
+			{Title: "Command", Grow: true},
+		}, 80, 20),
 	}
-	m.programCtx = tuictx.ProgramContext{
-		Theme:  th,
-		Styles: styles,
-	}
+	m.programCtx = *ctx
 	m.headerComp.UpdateProgramContext(&m.programCtx)
 	m.footerComp.UpdateProgramContext(&m.programCtx)
 	m.sidebarComp.UpdateProgramContext(&m.programCtx)

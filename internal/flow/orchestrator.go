@@ -33,6 +33,7 @@ type Orchestrator struct {
 // RunMaintainRound executes a single maintenance round.
 func (o *Orchestrator) RunMaintainRound(ctx context.Context) (*FlowRound, error) {
 	o.ensureMachine()
+	o.Runner.ResetRound()
 	_ = o.Machine.Transition(EventAnalyzeStart)
 	o.Logger.SetFlow("maintain")
 	round, err := o.Maintain.Run(ctx)
@@ -48,6 +49,7 @@ func (o *Orchestrator) RunMaintainRound(ctx context.Context) (*FlowRound, error)
 // RunGoalRound executes a single goal-completion round.
 func (o *Orchestrator) RunGoalRound(ctx context.Context) (*FlowRound, error) {
 	o.ensureMachine()
+	o.Runner.ResetRound()
 	_ = o.Machine.Transition(EventAnalyzeStart)
 	o.Logger.SetFlow("goal")
 	round, err := o.Goal.Run(ctx)

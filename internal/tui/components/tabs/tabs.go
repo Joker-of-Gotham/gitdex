@@ -1,76 +1,135 @@
+// Package tabs provides a gh-dash style tab bar component.
 package tabs
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/lipgloss/v2"
-
-	"github.com/Joker-of-Gotham/gitdex/internal/tui/components/carousel"
-	"github.com/Joker-of-Gotham/gitdex/internal/tui/context"
+	tuictx "github.com/Joker-of-Gotham/gitdex/internal/tui/context"
 )
 
-// Model manages tab-based section switching using a carousel.
-// Aligned with gh-dash's tabs.Model.
+// ViewTab defines a single tab entry.
+type ViewTab struct {
+	Title    string
+	Icon     string
+	ViewType tuictx.ViewType
+}
+
+// Model is the tabs component.
 type Model struct {
-	carousel carousel.Model
-	ctx      *context.ProgramContext
+	views   []ViewTab
+	current int
+	ctx     *tuictx.ProgramContext
+	counts  map[tuictx.ViewType]int
+	loading map[tuictx.ViewType]bool
+	width   int
 }
 
-// New creates a tabs model with the given tab labels.
-func New(labels []string) Model {
+// New creates a tabs model with the standard GitDex views.
+func New(ctx *tuictx.ProgramContext) Model {
 	return Model{
-		carousel: carousel.New(labels),
+		views: []ViewTab{
+			{Title: "Agent", Icon: ">>", ViewType: tuictx.AgentView},
+			{Title: "Git", Icon: "*", ViewType: tuictx.GitView},
+			{Title: "Workspace", Icon: "#", ViewType: tuictx.WorkspaceView},
+			{Title: "GitHub", Icon: "@", ViewType: tuictx.GitHubView},
+			{Title: "Config", Icon: "~", ViewType: tuictx.ConfigView},
+		},
+		current: 0,
+		ctx:     ctx,
+		counts:  make(map[tuictx.ViewType]int),
+		loading: make(map[tuictx.ViewType]bool),
 	}
-}
-
-// UpdateProgramContext stores the program context.
-func (m *Model) UpdateProgramContext(ctx *context.ProgramContext) {
-	m.ctx = ctx
 }
 
 // Next switches to the next tab.
-func (m *Model) Next() { m.carousel.Next() }
+func (m *Model) Next() {
+	m.current = (m.current + 1) % len(m.views)
+}
 
 // Prev switches to the previous tab.
-func (m *Model) Prev() { m.carousel.Prev() }
+func (m *Model) Prev() {
+	m.current--
+	if m.current < 0 {
+		m.current = len(m.views) - 1
+	}
+}
 
-// CurrentIdx returns the currently active tab index.
-func (m Model) CurrentIdx() int { return m.carousel.CurrentIdx() }
+// SetCurrent sets the active tab by ViewType.
+func (m *Model) SetCurrent(vt tuictx.ViewType) {
+	for i, v := range m.views {
+		if v.ViewType == vt {
+			m.current = i
+			return
+		}
+	}
+}
 
-// SetIdx sets the active tab by index.
-func (m *Model) SetIdx(idx int) { m.carousel.SetIdx(idx) }
+// CurrentView returns the active ViewType.
+func (m *Model) CurrentView() tuictx.ViewType {
+	if m.current < 0 || m.current >= len(m.views) {
+		return tuictx.AgentView
+	}
+	return m.views[m.current].ViewType
+}
+
+// SetCount updates the badge count for a view.
+func (m *Model) SetCount(vt tuictx.ViewType, count int) {
+	m.counts[vt] = count
+}
+
+// SetLoading sets the loading state for a view.
+func (m *Model) SetLoading(vt tuictx.ViewType, loading bool) {
+	m.loading[vt] = loading
+}
+
+// SetWidth sets the available width.
+func (m *Model) SetWidth(w int) {
+	m.width = w
+}
 
 // View renders the tab bar.
-func (m Model) View(width int) string {
-	items := m.carousel.Items()
-	if len(items) == 0 {
-		return ""
-	}
+func (m *Model) View() string {
+	logo := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color(m.ctx.Theme.Primary)).
+		Render("GitDex")
 
-	var activeStyle, inactiveStyle, gapStyle lipgloss.Style
-	if m.ctx != nil {
-		activeStyle = m.ctx.Styles.Tabs.ActiveTab
-		inactiveStyle = m.ctx.Styles.Tabs.InactiveTab
-		gapStyle = m.ctx.Styles.Tabs.TabGap
-	} else {
-		activeStyle = lipgloss.NewStyle().Bold(true).Padding(0, 2)
-		inactiveStyle = lipgloss.NewStyle().Padding(0, 2)
-		gapStyle = lipgloss.NewStyle()
-	}
+	var tabs []string
+	sep := m.ctx.Styles.Tabs.Separator.Render(" | ")
 
-	curr := m.carousel.CurrentIdx()
-	var parts []string
-	for i, label := range items {
-		if i == curr {
-			parts = append(parts, activeStyle.Render(label))
+	for i, v := range m.views {
+		label := v.Title
+		if count, ok := m.counts[v.ViewType]; ok && count > 0 {
+			label = fmt.Sprintf("%s(%d)", label, count)
+		}
+		if m.loading[v.ViewType] {
+			label = label + ".."
+		}
+
+		var style lipgloss.Style
+		if i == m.current {
+			style = m.ctx.Styles.Tabs.Active
 		} else {
-			parts = append(parts, inactiveStyle.Render(label))
+			style = m.ctx.Styles.Tabs.Inactive
 		}
-		if i < len(items)-1 {
-			parts = append(parts, gapStyle.Render("│"))
-		}
+		tabs = append(tabs, style.Render(label))
 	}
 
-	bar := strings.Join(parts, "")
-	return lipgloss.NewStyle().Width(width).Render(bar)
+	tabsLine := strings.Join(tabs, sep)
+	spacer := ""
+	tabWidth := lipgloss.Width(tabsLine) + lipgloss.Width(logo) + 4
+	if m.width > tabWidth {
+		spacer = strings.Repeat(" ", m.width-tabWidth)
+	}
+
+	return m.ctx.Styles.Tabs.Container.Render(
+		lipgloss.JoinHorizontal(lipgloss.Top, tabsLine, spacer, logo),
+	)
+}
+
+// UpdateProgramContext updates the shared context.
+func (m *Model) UpdateProgramContext(ctx *tuictx.ProgramContext) {
+	m.ctx = ctx
 }

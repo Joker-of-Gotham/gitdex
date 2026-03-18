@@ -2,9 +2,9 @@ package planner
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/Joker-of-Gotham/gitdex/internal/llm"
+	"github.com/Joker-of-Gotham/gitdex/internal/llm/jsonfix"
 	promptv2 "github.com/Joker-of-Gotham/gitdex/internal/llm/promptv2"
 )
 
@@ -26,9 +26,8 @@ func (p *CreativePlanner) Generate(ctx context.Context, gitContent, output, inde
 		return nil, err
 	}
 
-	text := cleanJSON(resp.Text)
 	var result CreativeOutput
-	if err := json.Unmarshal([]byte(text), &result); err != nil {
+	if err := jsonfix.RepairAndUnmarshal(resp.Text, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil

@@ -2,10 +2,10 @@ package planner
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 
 	"github.com/Joker-of-Gotham/gitdex/internal/llm"
+	"github.com/Joker-of-Gotham/gitdex/internal/llm/jsonfix"
 	promptv2 "github.com/Joker-of-Gotham/gitdex/internal/llm/promptv2"
 )
 
@@ -27,9 +27,8 @@ func (p *MaintenancePlanner) Plan(ctx context.Context, gitContent, output, knowl
 		return nil, "", err
 	}
 
-	text := cleanJSON(resp.Text)
 	var result plannerResponse
-	if err := json.Unmarshal([]byte(text), &result); err != nil {
+	if err := jsonfix.RepairAndUnmarshal(resp.Text, &result); err != nil {
 		return nil, "", err
 	}
 	sanitizeSuggestions(result.Suggestions)

@@ -6,10 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -42,6 +40,7 @@ type Runner struct {
 	repoRoot string
 	logger   *ExecutionLogger
 	cmdExec  CommandExecutor
+	platform *Platform
 
 	gitAdapter    GitAdapter
 	githubAdapter GitHubAdapter
@@ -74,6 +73,7 @@ func NewRunner(gitCLI cli.GitCLI, store *dotgitdex.Manager, logger *ExecutionLog
 		repoRoot:        root,
 		logger:          logger,
 		cmdExec:         osCommandExecutor{},
+		platform:        DetectPlatform(),
 		executedActions: make(map[string]bool),
 		recentFileReads: make(map[string]bool),
 		roundSignatures: make(map[string]bool),
@@ -381,7 +381,7 @@ func (r *Runner) execGitCommand(ctx context.Context, cmdStr string) *ExecutionRe
 	if reason := rejectShellOperators(cmdStr); reason != "" {
 		return &ExecutionResult{Command: cmdStr, Stderr: reason, Success: false}
 	}
-	args := parseCommand(cmdStr)
+	args := ParseCommand(cmdStr)
 	if len(args) == 0 {
 		return &ExecutionResult{Command: cmdStr, Stderr: "empty command after parsing", Success: false}
 	}
@@ -401,6 +401,25 @@ func (r *Runner) execGitCommand(ctx context.Context, cmdStr string) *ExecutionRe
 	// Also clean files being staged via `git add` to prevent later commit failures.
 	if isGitAddCommand(gitArgs) {
 		r.autoFixFilesBeingAdded(ctx, gitArgs)
+	}
+
+	// Convert -m/-am to -F <tempfile> for commit/tag/notes to avoid whitespace issues.
+	if NeedsTempFile("git_command", cmdStr) {
+		cmdObj := ConvertToTempFile(r.platform, r.repoRoot, "git_command", cmdStr)
+		if cmdObj != nil {
+			stdout, stderr, err := cmdObj.Run(ctx)
+			result := &ExecutionResult{
+				Command: cmdStr,
+				Stdout:  stdout,
+				Stderr:  stderr,
+				Success: err == nil,
+			}
+			if err != nil {
+				result.ExitCode = 1
+				result.Stderr = classifyGitError(stderr, cmdStr)
+			}
+			return result
+		}
 	}
 
 	stdout, stderr, err := r.gitCLI.Exec(ctx, gitArgs...)
@@ -455,7 +474,7 @@ func (r *Runner) autoFixFilesBeingAdded(ctx context.Context, gitArgs []string) {
 			continue
 		}
 		original := string(data)
-		cleaned := stripTrailingWhitespace(original)
+		cleaned := StripTrailingWhitespace(original)
 		if cleaned != original {
 			os.WriteFile(fullPath, []byte(cleaned), 0o644)
 		}
@@ -497,7 +516,7 @@ func (r *Runner) autoFixStagedWhitespace(ctx context.Context) {
 		return
 	}
 
-	fixedAny := false
+	var fixedFiles []string
 	for name := range fileSet {
 		if isBinaryFileName(name) {
 			continue
@@ -508,16 +527,17 @@ func (r *Runner) autoFixStagedWhitespace(ctx context.Context) {
 			continue
 		}
 		original := string(data)
-		cleaned := stripTrailingWhitespace(original)
+		cleaned := StripTrailingWhitespace(original)
 		if cleaned != original {
 			if err := os.WriteFile(fullPath, []byte(cleaned), 0o644); err == nil {
-				fixedAny = true
+				fixedFiles = append(fixedFiles, name)
 			}
 		}
 	}
 
-	if fixedAny {
-		r.gitCLI.Exec(ctx, "add", "-u")
+	if len(fixedFiles) > 0 {
+		args := append([]string{"add"}, fixedFiles...)
+		r.gitCLI.Exec(ctx, args...)
 	}
 }
 
@@ -625,149 +645,14 @@ func rejectShellOperators(cmdStr string) string {
 	return ""
 }
 
-// parseCommand splits a command string into individual arguments,
-// respecting single and double quotes so that
-// `git commit -m "Fix trailing whitespace"` becomes
-// ["git", "commit", "-m", "Fix trailing whitespace"].
+// parseCommand delegates to the exported ParseCommand in cmdobj.go.
 func parseCommand(cmd string) []string {
-	var args []string
-	var current strings.Builder
-	inSingle := false
-	inDouble := false
-	runes := []rune(cmd)
-	for i := 0; i < len(runes); i++ {
-		r := runes[i]
-		if r == '\\' {
-			if inDouble && i+1 < len(runes) {
-				next := runes[i+1]
-				if next == '"' || next == '\\' {
-					current.WriteRune(next)
-					i++
-					continue
-				}
-			}
-			// Keep backslashes as-is for cross-platform paths (especially Windows).
-			current.WriteRune(r)
-			continue
-		}
-		if r == '\'' && !inDouble {
-			inSingle = !inSingle
-			continue
-		}
-		if r == '"' && !inSingle {
-			inDouble = !inDouble
-			continue
-		}
-		if (r == ' ' || r == '\t') && !inSingle && !inDouble {
-			if current.Len() > 0 {
-				args = append(args, current.String())
-				current.Reset()
-			}
-			continue
-		}
-		current.WriteRune(r)
-	}
-	if current.Len() > 0 {
-		args = append(args, current.String())
-	}
-	return args
+	return ParseCommand(cmd)
 }
 
-// crossPlatformCommands are allowed on all OS.
-// NOTE: git and gh are intentionally excluded — they are auto-routed to
-// execGitCommand / execGitHubOp which have pre-flight checks and error
-// classification. This prevents bypassing the dedicated protection logic.
-var crossPlatformCommands = map[string]bool{
-	// Build tools
-	"go": true, "make": true, "cmake": true, "gradle": true, "mvn": true,
-	// JavaScript / TypeScript
-	"npm": true, "npx": true, "yarn": true, "pnpm": true,
-	"node": true, "deno": true, "bun": true, "tsc": true,
-	// Python
-	"python": true, "python3": true, "pip": true, "pip3": true, "uv": true,
-	// Rust
-	"cargo": true, "rustc": true,
-	// .NET / Java
-	"dotnet": true, "java": true, "javac": true,
-	// Containers
-	"docker": true, "docker-compose": true, "podman": true,
-	// Universal utilities
-	"echo": true, "cp": true, "mv": true, "mkdir": true,
-	"curl": true, "zip": true, "unzip": true,
-	"tree": true, "rg": true,
-}
-
-// unixOnlyCommands are only available on Unix/Linux/macOS.
-var unixOnlyCommands = map[string]bool{
-	"cat": true, "ls": true, "head": true, "tail": true,
-	"grep": true, "find": true, "wc": true, "sort": true, "uniq": true,
-	"touch": true, "chmod": true, "chown": true, "ln": true,
-	"wget": true, "tar": true, "gzip": true, "gunzip": true, "xz": true,
-	"sed": true, "awk": true, "perl": true, "tr": true, "cut": true,
-	"diff": true, "patch": true, "tee": true, "xargs": true,
-	"which": true, "test": true, "true": true, "false": true,
-	"env": true, "printenv": true,
-	"rm": true, "rmdir": true, "realpath": true, "basename": true, "dirname": true,
-}
-
-// windowsOnlyCommands are only available on Windows.
-var windowsOnlyCommands = map[string]bool{
-	"dir": true, "where": true, "type": true, "set": true,
-	"copy": true, "xcopy": true, "robocopy": true, "del": true,
-	"rename": true, "ren": true, "move": true,
-	"icacls": true, "attrib": true, "mklink": true,
-	"findstr": true, "more": true, "sort": true,
-	"certutil": true, "clip": true,
-}
-
-// unixToolAlternatives suggests what to use instead of a Unix tool on Windows.
-var unixToolAlternatives = map[string]string{
-	"sed":      "Use file_read + file_write to modify file content",
-	"awk":      "Use file_read + file_write to modify file content",
-	"perl":     "Use file_read + file_write to modify file content",
-	"tr":       "Use file_read + file_write to modify file content",
-	"cut":      "Use file_read + file_write to modify file content",
-	"head":     "Use file_read to read the file, then file_write to rewrite",
-	"tail":     "Use file_read to read the file, then file_write to rewrite",
-	"cat":      "Use file_read to read file contents",
-	"ls":       "Use 'dir' on Windows",
-	"find":     "Use 'dir /s /b' or 'where' on Windows",
-	"grep":     "Use 'rg' (ripgrep) which is cross-platform",
-	"touch":    "Use file_write with 'create' operation",
-	"chmod":    "Use 'icacls' on Windows or skip this step",
-	"chown":    "Not applicable on Windows; skip this step",
-	"ln":       "Use 'mklink' on Windows",
-	"wc":       "Use file_read + count in a script, or a cross-platform tool",
-	"sort":     "Use 'sort' (also available on Windows) or file_read + file_write",
-	"uniq":     "Use file_read + file_write to deduplicate",
-	"wget":     "Use 'curl' which is available on Windows",
-	"tar":      "Use 'zip'/'unzip' on Windows",
-	"gzip":     "Use 'zip'/'unzip' on Windows",
-	"gunzip":   "Use 'zip'/'unzip' on Windows",
-	"xz":       "Use 'zip'/'unzip' on Windows",
-	"diff":     "Use 'git diff' instead",
-	"patch":    "Use 'git apply' instead",
-	"tee":      "Use file_write with 'append' operation",
-	"xargs":    "Use a loop or file_write",
-	"which":    "Use 'where' on Windows",
-	"env":      "Use 'set' on Windows",
-	"printenv": "Use 'set' on Windows",
-	"rm":       "Use 'del' on Windows or file_write with 'delete' operation",
-	"rmdir":    "Use 'rmdir' (also works on Windows)",
-	"realpath": "Not needed; use relative paths or file_read",
-	"basename": "Not needed on Windows",
-	"dirname":  "Not needed on Windows",
-}
-
-func isCommandAllowed(base string) bool {
-	if crossPlatformCommands[base] {
-		return true
-	}
-	if runtime.GOOS == "windows" {
-		return windowsOnlyCommands[base]
-	}
-	return unixOnlyCommands[base]
-}
+// Command allowlists and alternative hints are now centralized in platform.go
+// (CrossPlatformCommands, UnixOnlyCommands, WindowsOnlyCommands, ToolAlternatives).
+// Platform.IsCommandAllowed() and AlternativeHint() provide the unified API.
 
 func (r *Runner) execShellCommand(ctx context.Context, cmdStr string) *ExecutionResult {
 	if cmdStr == "" {
@@ -778,7 +663,7 @@ func (r *Runner) execShellCommand(ctx context.Context, cmdStr string) *Execution
 		return &ExecutionResult{Command: cmdStr, Stderr: reason, Success: false}
 	}
 
-	args := parseCommand(cmdStr)
+	args := ParseCommand(cmdStr)
 	if len(args) == 0 {
 		return &ExecutionResult{Command: cmdStr, Stderr: "empty shell command after parsing", Success: false}
 	}
@@ -806,10 +691,10 @@ func (r *Runner) execShellCommand(ctx context.Context, cmdStr string) *Execution
 		}
 	}
 
-	if !isCommandAllowed(base) {
-		errMsg := fmt.Sprintf("shell_command: %q is not available on this platform (%s)", base, runtime.GOOS)
-		if alt, ok := unixToolAlternatives[base]; ok {
-			errMsg += fmt.Sprintf(". Alternative: %s", alt)
+	if !r.platform.IsCommandAllowed(base) {
+		errMsg := fmt.Sprintf("shell_command: %q is not available on this platform (%s)", base, r.platform.OS)
+		if hint := AlternativeHint(base); hint != "" {
+			errMsg += fmt.Sprintf(". Alternative: %s", hint)
 		}
 		return &ExecutionResult{
 			Command: cmdStr,
@@ -818,30 +703,13 @@ func (r *Runner) execShellCommand(ctx context.Context, cmdStr string) *Execution
 		}
 	}
 
-	if _, err := exec.LookPath(args[0]); err != nil {
-		alt := ""
-		if hint, ok := unixToolAlternatives[base]; ok {
-			alt = ". Alternative: " + hint
-		}
-		return &ExecutionResult{
-			Command: cmdStr,
-			Stderr:  fmt.Sprintf("shell_command: %q not found in PATH%s", args[0], alt),
-			Success: false,
-		}
-	}
-
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	if r.repoRoot != "" {
-		cmd.Dir = r.repoRoot
-	}
-	var outBuf, errBuf strings.Builder
-	cmd.Stdout = &outBuf
-	cmd.Stderr = &errBuf
-	err := cmd.Run()
+	cmdObj := NewShellCmd(r.platform, args[0], args[1:]...)
+	cmdObj.SetWd(r.repoRoot)
+	stdout, stderr, err := cmdObj.Run(ctx)
 	result := &ExecutionResult{
 		Command: cmdStr,
-		Stdout:  outBuf.String(),
-		Stderr:  errBuf.String(),
+		Stdout:  stdout,
+		Stderr:  stderr,
 		Success: err == nil,
 	}
 	if err != nil {
@@ -1102,15 +970,9 @@ func ghFlagValueOrPositional(args []string, flagName string, posIdx int) string 
 }
 
 func (r *Runner) runGH(ctx context.Context, args ...string) (string, string, error) {
-	cmd := exec.CommandContext(ctx, r.ghBinary(), args...)
-	if r.repoRoot != "" {
-		cmd.Dir = r.repoRoot
-	}
-	var out, errBuf strings.Builder
-	cmd.Stdout = &out
-	cmd.Stderr = &errBuf
-	err := cmd.Run()
-	return out.String(), errBuf.String(), err
+	cmdObj := NewGhCmd(r.platform, args...)
+	cmdObj.SetWd(r.repoRoot)
+	return cmdObj.Run(ctx)
 }
 
 func (r *Runner) ghBinary() string {
@@ -1186,7 +1048,7 @@ func (r *Runner) execGitHubOp(ctx context.Context, cmdStr string) *ExecutionResu
 	if reason := rejectShellOperators(cmdStr); reason != "" {
 		return &ExecutionResult{Command: cmdStr, Stderr: reason, Success: false}
 	}
-	args := parseCommand(cmdStr)
+	args := ParseCommand(cmdStr)
 	if len(args) == 0 {
 		return &ExecutionResult{Command: cmdStr, Stderr: "empty github_op after parsing", Success: false}
 	}
@@ -1203,14 +1065,6 @@ func (r *Runner) execGitHubOp(ctx context.Context, cmdStr string) *ExecutionResu
 		return &ExecutionResult{
 			Command: cmdStr,
 			Stderr:  fmt.Sprintf("github_op: invalid gh subcommand %q. Valid subcommands: issue, pr, release, label, repo, workflow, run, api, auth, secret, variable", ghArgs[0]),
-			Success: false,
-		}
-	}
-
-	if _, err := exec.LookPath(ghBin); err != nil {
-		return &ExecutionResult{
-			Command: cmdStr,
-			Stderr:  fmt.Sprintf("github_op: %q CLI not found. Install from https://cli.github.com/", ghBin),
 			Success: false,
 		}
 	}
@@ -1240,23 +1094,37 @@ func (r *Runner) execGitHubOp(ctx context.Context, cmdStr string) *ExecutionResu
 		}
 	}
 
-	cmd := exec.CommandContext(ctx, ghBin, ghArgs...)
-	if r.repoRoot != "" {
-		cmd.Dir = r.repoRoot
+	// Convert --body to temp file for commands that include body text.
+	if NeedsTempFile("github_op", cmdStr) {
+		cmdObj := ConvertToTempFile(r.platform, r.repoRoot, "github_op", cmdStr)
+		if cmdObj != nil {
+			stdout, stderr, err := cmdObj.Run(ctx)
+			result := &ExecutionResult{
+				Command: cmdStr,
+				Stdout:  stdout,
+				Stderr:  stderr,
+				Success: err == nil,
+			}
+			if err != nil {
+				result.ExitCode = 1
+				result.Stderr = classifyGHError(stderr, cmdStr)
+			}
+			return result
+		}
 	}
-	var outBuf, errBuf strings.Builder
-	cmd.Stdout = &outBuf
-	cmd.Stderr = &errBuf
-	err := cmd.Run()
+
+	cmdObj := NewGhCmd(r.platform, ghArgs...)
+	cmdObj.SetWd(r.repoRoot)
+	stdout, stderr, err := cmdObj.Run(ctx)
 	result := &ExecutionResult{
 		Command: cmdStr,
-		Stdout:  outBuf.String(),
-		Stderr:  errBuf.String(),
+		Stdout:  stdout,
+		Stderr:  stderr,
 		Success: err == nil,
 	}
 	if err != nil {
 		result.ExitCode = 1
-		result.Stderr = classifyGHError(errBuf.String(), cmdStr)
+		result.Stderr = classifyGHError(stderr, cmdStr)
 	}
 	return result
 }
@@ -1282,7 +1150,7 @@ func (r *Runner) execFileWrite(action planner.ActionSpec) *ExecutionResult {
 				return result
 			}
 		}
-		content := stripTrailingWhitespace(action.FileContent)
+		content := StripTrailingWhitespace(action.FileContent)
 		err := os.WriteFile(safePath, []byte(content), 0o644)
 		result.Success = err == nil
 		if err != nil {
@@ -1299,7 +1167,7 @@ func (r *Runner) execFileWrite(action planner.ActionSpec) *ExecutionResult {
 			result.ExitCode = 1
 			return result
 		}
-		content := stripTrailingWhitespace(action.FileContent)
+		content := StripTrailingWhitespace(action.FileContent)
 		_, err = f.WriteString(content)
 		f.Close()
 		result.Success = err == nil
@@ -1378,21 +1246,7 @@ func (r *Runner) resolveInsideRepo(path string) (string, error) {
 	return abs, nil
 }
 
+// stripTrailingWhitespace delegates to the exported StripTrailingWhitespace in cmdobj.go.
 func stripTrailingWhitespace(s string) string {
-	// Normalize all line endings to LF.
-	s = strings.ReplaceAll(s, "\r\n", "\n")
-	s = strings.ReplaceAll(s, "\r", "\n")
-	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		// Strip trailing spaces, tabs, vertical tabs, form feeds, non-breaking spaces.
-		lines[i] = strings.TrimRight(line, " \t\v\f\u00A0")
-	}
-	result := strings.Join(lines, "\n")
-	// Ensure file ends with exactly one newline (POSIX convention, prevents
-	// "no newline at end of file" warnings from git).
-	result = strings.TrimRight(result, "\n")
-	if result != "" {
-		result += "\n"
-	}
-	return result
+	return StripTrailingWhitespace(s)
 }

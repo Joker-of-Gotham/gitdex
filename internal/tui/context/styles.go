@@ -6,202 +6,223 @@ import (
 	"github.com/Joker-of-Gotham/gitdex/internal/tui/theme"
 )
 
-// Styles holds all component-level styles, initialized from the active theme.
-// Aligned with gh-dash's context.Styles approach: no inline styles in components.
+// Styles centralizes all TUI styles, initialized from ThemeColors.
+// Inspired by gh-dash's ui/context/styles.go.
 type Styles struct {
-	Common  CommonStyles
-	Section SectionStyles
-	Sidebar SidebarStyles
-	Table   TableStyles
-	Tabs    TabStyles
-	Footer  FooterStyles
-	Panel   PanelStyles
-	Input   InputStyles
-	Header  HeaderStyles
+	Common   CommonStyles
+	Section  SectionStyles
+	Table    TableStyles
+	Sidebar  SidebarStyles
+	Tabs     TabStyles
+	Footer   FooterStyles
+	Input    InputStyles
+	Status   StatusStyles
+	Header   HeaderStyles
+	Panel    PanelStyles
 }
 
+// CommonStyles are base text styles.
 type CommonStyles struct {
-	MainTextStyle lipgloss.Style
-	MutedStyle    lipgloss.Style
-	ErrorStyle    lipgloss.Style
-	SuccessStyle  lipgloss.Style
-	WarningStyle  lipgloss.Style
-	InfoStyle     lipgloss.Style
-	BoldStyle     lipgloss.Style
+	MainText lipgloss.Style
+	Faint    lipgloss.Style
+	Bold     lipgloss.Style
+	Error    lipgloss.Style
+	Success  lipgloss.Style
+	Warning  lipgloss.Style
+	Info     lipgloss.Style
 }
 
+// SectionStyles for section containers.
 type SectionStyles struct {
-	ContainerStyle       lipgloss.Style
-	FocusedContainerStyle lipgloss.Style
-	TitleStyle           lipgloss.Style
-	EmptyStateStyle      lipgloss.Style
+	Container       lipgloss.Style
+	FocusedBorder   lipgloss.Style
+	UnfocusedBorder lipgloss.Style
+	Title           lipgloss.Style
+	EmptyState      lipgloss.Style
 }
 
-type SidebarStyles struct {
-	ContainerStyle lipgloss.Style
-	TitleStyle     lipgloss.Style
-	ContentStyle   lipgloss.Style
-}
-
+// TableStyles for table rendering.
 type TableStyles struct {
-	RowStyle         lipgloss.Style
-	SelectedRowStyle lipgloss.Style
-	HeaderStyle      lipgloss.Style
-	CellStyle        lipgloss.Style
+	Header       lipgloss.Style
+	Cell         lipgloss.Style
+	SelectedCell lipgloss.Style
+	SelectedRow  lipgloss.Style
+	Row          lipgloss.Style
+	Title        lipgloss.Style
 }
 
+// SidebarStyles for sidebar rendering.
+type SidebarStyles struct {
+	Container lipgloss.Style
+	Border    lipgloss.Style
+	Pager     lipgloss.Style
+	Content   lipgloss.Style
+}
+
+// TabStyles for tab rendering.
 type TabStyles struct {
-	ActiveTab   lipgloss.Style
-	InactiveTab lipgloss.Style
-	TabGap      lipgloss.Style
+	Active    lipgloss.Style
+	Inactive  lipgloss.Style
+	Separator lipgloss.Style
+	Container lipgloss.Style
 }
 
+// FooterStyles for footer rendering.
 type FooterStyles struct {
-	ContainerStyle   lipgloss.Style
-	ViewSwitcherStyle lipgloss.Style
-	HelpKeyStyle     lipgloss.Style
-	HelpDescStyle    lipgloss.Style
+	Container   lipgloss.Style
+	ViewSwitch  lipgloss.Style
+	Help        lipgloss.Style
+	KeyBinding  lipgloss.Style
+	Description lipgloss.Style
 }
 
+// InputStyles for input fields.
+type InputStyles struct {
+	Prompt lipgloss.Style
+	Text   lipgloss.Style
+	Cursor lipgloss.Style
+}
+
+// StatusStyles for status badges.
+type StatusStyles struct {
+	OK   lipgloss.Style
+	Run  lipgloss.Style
+	Err  lipgloss.Style
+	Wait lipgloss.Style
+	Skip lipgloss.Style
+}
+
+// HeaderStyles for the legacy header bar.
+type HeaderStyles struct {
+	ModeStyle      lipgloss.Style
+	FlowStyle      lipgloss.Style
+	ContextStyle   lipgloss.Style
+	ContainerStyle lipgloss.Style
+}
+
+// PanelStyles for the legacy panel component.
 type PanelStyles struct {
 	BorderStyle        lipgloss.Style
 	FocusedBorderStyle lipgloss.Style
 	TitleStyle         lipgloss.Style
-	PillStyle          lipgloss.Style
 }
 
-type InputStyles struct {
-	PromptStyle lipgloss.Style
-	TextStyle   lipgloss.Style
-	CursorStyle lipgloss.Style
+// InitStylesFromLegacy creates Styles from a legacy *theme.Theme.
+func InitStylesFromLegacy(t *theme.Theme) *Styles {
+	if t == nil {
+		return InitStyles(nil)
+	}
+	return InitStyles(&ThemeColors{
+		Primary:       t.Primary,
+		Secondary:     t.Secondary,
+		Background:    t.BgPanel,
+		Foreground:    t.Text,
+		Subtle:        t.TextMuted,
+		Highlight:     t.Accent,
+		SuccessText:   t.Success,
+		WarningText:   t.Warning,
+		DangerText:    t.Danger,
+		InfoText:      t.Info,
+		OpenColor:     t.Success,
+		ClosedColor:   t.Danger,
+		MergedColor:   t.Secondary,
+		DraftColor:    t.TextMuted,
+		BorderNormal:  t.Border,
+		BorderFocused: t.BorderFoc,
+		BorderActive:  t.Success,
+		TabActive:     t.Primary,
+		TabInactive:   t.TextMuted,
+		StatusOK:      t.Success,
+		StatusRun:     t.Primary,
+		StatusErr:     t.Danger,
+		StatusWait:    t.TextMuted,
+		StatusSkip:    t.Warning,
+	})
 }
 
-type HeaderStyles struct {
-	ContainerStyle lipgloss.Style
-	ModeStyle      lipgloss.Style
-	FlowStyle      lipgloss.Style
-	ContextStyle   lipgloss.Style
-}
-
-// InitStyles creates the full Styles struct from a theme.
-func InitStyles(th *theme.Theme) Styles {
+// InitStyles creates Styles from a ThemeColors palette.
+func InitStyles(th *ThemeColors) *Styles {
 	if th == nil {
-		th = &theme.Theme{
-			Primary: "#7AA2F7", Secondary: "#BB9AF7", Accent: "#7DCFFF",
-			Success: "#9ECE6A", Warning: "#E0AF68", Danger: "#F7768E",
-			Info: "#7DCFFF", Text: "#C0CAF5", TextMuted: "#565F89",
-			Border: "#3B4261", BorderFoc: "#7AA2F7", BgPanel: "#1A1B26",
-		}
+		th = DefaultTheme()
 	}
 
-	primary := lipgloss.Color(th.Primary)
-	text := lipgloss.Color(th.Text)
-	muted := lipgloss.Color(th.TextMuted)
-	border := lipgloss.Color(th.Border)
-	borderFoc := lipgloss.Color(th.BorderFoc)
-	success := lipgloss.Color(th.Success)
-	warning := lipgloss.Color(th.Warning)
-	danger := lipgloss.Color(th.Danger)
-	info := lipgloss.Color(th.Info)
+	s := &Styles{}
 
-	roundedBorder := lipgloss.RoundedBorder()
-
-	return Styles{
-		Common: CommonStyles{
-			MainTextStyle: lipgloss.NewStyle().Foreground(text),
-			MutedStyle:    lipgloss.NewStyle().Foreground(muted),
-			ErrorStyle:    lipgloss.NewStyle().Foreground(danger),
-			SuccessStyle:  lipgloss.NewStyle().Foreground(success),
-			WarningStyle:  lipgloss.NewStyle().Foreground(warning),
-			InfoStyle:     lipgloss.NewStyle().Foreground(info),
-			BoldStyle:     lipgloss.NewStyle().Bold(true).Foreground(text),
-		},
-		Section: SectionStyles{
-			ContainerStyle: lipgloss.NewStyle().
-				Border(roundedBorder).
-				BorderForeground(border).
-				Padding(0, 1),
-			FocusedContainerStyle: lipgloss.NewStyle().
-				Border(roundedBorder).
-				BorderForeground(borderFoc).
-				Padding(0, 1),
-			TitleStyle: lipgloss.NewStyle().
-				Bold(true).
-				Foreground(primary).
-				Padding(0, 1),
-			EmptyStateStyle: lipgloss.NewStyle().
-				Foreground(muted).
-				Italic(true).
-				Padding(1, 2),
-		},
-		Sidebar: SidebarStyles{
-			ContainerStyle: lipgloss.NewStyle().
-				BorderLeft(true).
-				BorderStyle(lipgloss.NormalBorder()).
-				BorderForeground(border).
-				Padding(0, 1),
-			TitleStyle: lipgloss.NewStyle().Bold(true).Foreground(primary),
-			ContentStyle: lipgloss.NewStyle().Foreground(text),
-		},
-		Table: TableStyles{
-			RowStyle:         lipgloss.NewStyle().Foreground(text),
-			SelectedRowStyle: lipgloss.NewStyle().Foreground(primary).Bold(true),
-			HeaderStyle:      lipgloss.NewStyle().Foreground(muted).Bold(true),
-			CellStyle:        lipgloss.NewStyle().Foreground(text),
-		},
-		Tabs: TabStyles{
-			ActiveTab: lipgloss.NewStyle().
-				Bold(true).
-				Foreground(primary).
-				Padding(0, 2),
-			InactiveTab: lipgloss.NewStyle().
-				Foreground(muted).
-				Padding(0, 2),
-			TabGap: lipgloss.NewStyle().
-				Foreground(muted),
-		},
-		Footer: FooterStyles{
-			ContainerStyle: lipgloss.NewStyle().
-				Foreground(muted).
-				Padding(0, 1),
-			ViewSwitcherStyle: lipgloss.NewStyle().
-				Foreground(primary),
-			HelpKeyStyle: lipgloss.NewStyle().
-				Foreground(primary).
-				Bold(true),
-			HelpDescStyle: lipgloss.NewStyle().
-				Foreground(muted),
-		},
-		Panel: PanelStyles{
-			BorderStyle: lipgloss.NewStyle().
-				Border(roundedBorder).
-				BorderForeground(border),
-			FocusedBorderStyle: lipgloss.NewStyle().
-				Border(roundedBorder).
-				BorderForeground(borderFoc),
-			TitleStyle: lipgloss.NewStyle().
-				Bold(true).
-				Foreground(primary),
-			PillStyle: lipgloss.NewStyle().
-				Foreground(text).
-				Padding(0, 1),
-		},
-		Input: InputStyles{
-			PromptStyle: lipgloss.NewStyle().Foreground(primary),
-			TextStyle:   lipgloss.NewStyle().Foreground(text),
-			CursorStyle: lipgloss.NewStyle().Foreground(primary),
-		},
-		Header: HeaderStyles{
-			ContainerStyle: lipgloss.NewStyle().
-				Foreground(text).
-				Padding(0, 1),
-			ModeStyle: lipgloss.NewStyle().
-				Bold(true).
-				Foreground(primary),
-			FlowStyle: lipgloss.NewStyle().
-				Foreground(info),
-			ContextStyle: lipgloss.NewStyle().
-				Foreground(muted),
-		},
+	s.Common = CommonStyles{
+		MainText: lipgloss.NewStyle().Foreground(lipgloss.Color(th.Foreground)),
+		Faint:    lipgloss.NewStyle().Foreground(lipgloss.Color(th.Subtle)),
+		Bold:     lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(th.Foreground)),
+		Error:    lipgloss.NewStyle().Foreground(lipgloss.Color(th.DangerText)),
+		Success:  lipgloss.NewStyle().Foreground(lipgloss.Color(th.SuccessText)),
+		Warning:  lipgloss.NewStyle().Foreground(lipgloss.Color(th.WarningText)),
+		Info:     lipgloss.NewStyle().Foreground(lipgloss.Color(th.InfoText)),
 	}
+
+	s.Section = SectionStyles{
+		Container:       lipgloss.NewStyle(),
+		FocusedBorder:   lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(th.BorderFocused)),
+		UnfocusedBorder: lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(th.BorderNormal)),
+		Title:           lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(th.Primary)),
+		EmptyState:      lipgloss.NewStyle().Foreground(lipgloss.Color(th.Subtle)).Italic(true),
+	}
+
+	s.Table = TableStyles{
+		Header:       lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(th.Primary)).Padding(0, 1),
+		Cell:         lipgloss.NewStyle().Padding(0, 1),
+		SelectedCell: lipgloss.NewStyle().Padding(0, 1).Background(lipgloss.Color(th.Primary)).Foreground(lipgloss.Color(th.Background)),
+		SelectedRow:  lipgloss.NewStyle().Background(lipgloss.Color(th.Primary)).Foreground(lipgloss.Color(th.Background)),
+		Row:          lipgloss.NewStyle(),
+		Title:        lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(th.Foreground)),
+	}
+
+	s.Sidebar = SidebarStyles{
+		Container: lipgloss.NewStyle(),
+		Border:    lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(th.BorderNormal)),
+		Pager:     lipgloss.NewStyle().Foreground(lipgloss.Color(th.Subtle)),
+		Content:   lipgloss.NewStyle().Padding(0, 1),
+	}
+
+	s.Tabs = TabStyles{
+		Active:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(th.TabActive)).Underline(true),
+		Inactive:  lipgloss.NewStyle().Foreground(lipgloss.Color(th.TabInactive)),
+		Separator: lipgloss.NewStyle().Foreground(lipgloss.Color(th.Subtle)),
+		Container: lipgloss.NewStyle().Padding(0, 1),
+	}
+
+	s.Footer = FooterStyles{
+		Container:   lipgloss.NewStyle().Padding(0, 1),
+		ViewSwitch:  lipgloss.NewStyle().Foreground(lipgloss.Color(th.Primary)),
+		Help:        lipgloss.NewStyle().Foreground(lipgloss.Color(th.Subtle)),
+		KeyBinding:  lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(th.Foreground)),
+		Description: lipgloss.NewStyle().Foreground(lipgloss.Color(th.Subtle)),
+	}
+
+	s.Input = InputStyles{
+		Prompt: lipgloss.NewStyle().Foreground(lipgloss.Color(th.Primary)),
+		Text:   lipgloss.NewStyle().Foreground(lipgloss.Color(th.Foreground)),
+		Cursor: lipgloss.NewStyle().Foreground(lipgloss.Color(th.Primary)),
+	}
+
+	s.Status = StatusStyles{
+		OK:   lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(th.StatusOK)),
+		Run:  lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(th.StatusRun)),
+		Err:  lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(th.StatusErr)),
+		Wait: lipgloss.NewStyle().Foreground(lipgloss.Color(th.StatusWait)),
+		Skip: lipgloss.NewStyle().Foreground(lipgloss.Color(th.StatusSkip)),
+	}
+
+	s.Header = HeaderStyles{
+		ModeStyle:      lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(th.Background)).Background(lipgloss.Color(th.Primary)),
+		FlowStyle:      lipgloss.NewStyle().Foreground(lipgloss.Color(th.Secondary)),
+		ContextStyle:   lipgloss.NewStyle().Foreground(lipgloss.Color(th.Subtle)),
+		ContainerStyle: lipgloss.NewStyle(),
+	}
+
+	s.Panel = PanelStyles{
+		BorderStyle:        lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(th.BorderNormal)),
+		FocusedBorderStyle: lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color(th.BorderFocused)),
+		TitleStyle:         lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(th.Primary)),
+	}
+
+	return s
 }

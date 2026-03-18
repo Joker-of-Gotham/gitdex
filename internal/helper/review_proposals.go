@@ -2,11 +2,11 @@ package helper
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/Joker-of-Gotham/gitdex/internal/dotgitdex"
 	"github.com/Joker-of-Gotham/gitdex/internal/llm"
+	"github.com/Joker-of-Gotham/gitdex/internal/llm/jsonfix"
 )
 
 // ReviewResult holds the triaged creative goals.
@@ -76,9 +76,8 @@ Classify the candidates.`,
 		return nil, err
 	}
 
-	text := cleanJSON(resp.Text)
 	var result reviewResponse
-	if err := json.Unmarshal([]byte(text), &result); err != nil {
+	if err := jsonfix.RepairAndUnmarshal(resp.Text, &result); err != nil {
 		return nil, err
 	}
 

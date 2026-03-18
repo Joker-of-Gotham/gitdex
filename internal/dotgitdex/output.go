@@ -22,22 +22,24 @@ type Round struct {
 
 // Step records one suggestion execution.
 type Step struct {
-	SequenceID int       `json:"sequence_id"`
-	Name       string    `json:"name"`
-	ActionType string    `json:"action_type,omitempty"`
-	TraceID    string    `json:"trace_id,omitempty"`
-	RoundID    string    `json:"round_id,omitempty"`
-	AttemptID  string    `json:"attempt_id,omitempty"`
-	SliceID    string    `json:"slice_id,omitempty"`
-	Command    string    `json:"command,omitempty"`
-	FilePath   string    `json:"file_path,omitempty"`
-	FileOp     string    `json:"file_operation,omitempty"`
-	Stdout     string    `json:"stdout,omitempty"`
-	Stderr     string    `json:"stderr,omitempty"`
-	ExitCode   int       `json:"exit_code"`
-	Success    bool      `json:"success"`
-	StartedAt  time.Time `json:"started_at"`
-	FinishedAt time.Time `json:"finished_at"`
+	SequenceID   int       `json:"sequence_id"`
+	Name         string    `json:"name"`
+	ActionType   string    `json:"action_type,omitempty"`
+	TraceID      string    `json:"trace_id,omitempty"`
+	RoundID      string    `json:"round_id,omitempty"`
+	AttemptID    string    `json:"attempt_id,omitempty"`
+	SliceID      string    `json:"slice_id,omitempty"`
+	Command      string    `json:"command,omitempty"`
+	FilePath     string    `json:"file_path,omitempty"`
+	FileOp       string    `json:"file_operation,omitempty"`
+	Stdout       string    `json:"stdout,omitempty"`
+	Stderr       string    `json:"stderr,omitempty"`
+	ExitCode     int       `json:"exit_code"`
+	Success      bool      `json:"success"`
+	RecoveryType string    `json:"recovery_type,omitempty"`
+	RecoveryNote string    `json:"recovery_note,omitempty"`
+	StartedAt    time.Time `json:"started_at"`
+	FinishedAt   time.Time `json:"finished_at"`
 }
 
 // OutputLog manages maintain/output.txt as a rolling window of recent rounds.
@@ -199,12 +201,25 @@ func (o *OutputLog) load() error {
 // buildFailedEntry constructs a descriptive string for a failed step,
 // covering both command-based and file-based actions.
 func buildFailedEntry(s Step) string {
+	recoveryHint := ""
+	if s.RecoveryType != "" {
+		switch s.RecoveryType {
+		case "skip":
+			recoveryHint = " [SKIP: non-fatal, do NOT retry]"
+		case "manual":
+			recoveryHint = " [MANUAL: requires user intervention, STOP]"
+		case "retry":
+			recoveryHint = " [RETRY: transient error, may retry with different approach]"
+		case "abort":
+			recoveryHint = " [ABORT: do NOT retry this command]"
+		}
+	}
 	if s.Command != "" {
 		errMsg := s.Stderr
 		if len(errMsg) > 200 {
 			errMsg = errMsg[:200]
 		}
-		return fmt.Sprintf("%s (error: %s)", s.Command, errMsg)
+		return fmt.Sprintf("%s (error: %s)%s", s.Command, errMsg, recoveryHint)
 	}
 	if s.FilePath != "" {
 		op := s.FileOp
@@ -218,7 +233,7 @@ func buildFailedEntry(s Step) string {
 		if len(errMsg) > 200 {
 			errMsg = errMsg[:200]
 		}
-		return fmt.Sprintf("%s %s (error: %s)", op, s.FilePath, errMsg)
+		return fmt.Sprintf("%s %s (error: %s)%s", op, s.FilePath, errMsg, recoveryHint)
 	}
 	return ""
 }

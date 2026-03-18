@@ -119,7 +119,7 @@ func (m Model) calcLayout() layoutGeo {
 	tok := layoutTokensForWidth(w)
 	headerH := tok.headerH
 	inputH := tok.inputH
-	contentH := h - headerH - inputH
+	contentH := h - 7
 	if contentH < tok.minContentH {
 		contentH = tok.minContentH
 	}
@@ -561,18 +561,44 @@ func (m Model) renderMainView() string {
 		w = 80
 	}
 	header := m.renderHeader(w)
+	tabBar := m.tabsComp.View()
 	input := m.renderInput(w)
-	left := m.renderLeftPanel(geo.leftW, geo.contentH)
-	right := m.renderRightPanel(geo.rightW, geo.contentH, geo)
-	sep := buildVSep(geo.contentH)
-	content := lipgloss.JoinHorizontal(lipgloss.Top, left, sep, right)
+
+	contentH := geo.contentH
+	if contentH < 3 {
+		contentH = 3
+	}
+
+	var content string
+	if m.detailPaneOpen {
+		mainW := geo.leftW
+		sideW := geo.rightW
+		
+		m.agentTable.SetDimensions(mainW, contentH)
+		m.sidebarComp.SetDimensions(sideW, contentH)
+		
+		left := m.agentTable.View()
+		sep := buildVSep(contentH)
+		right := m.sidebarComp.View()
+		content = lipgloss.JoinHorizontal(lipgloss.Top, left, sep, right)
+	} else {
+		mainW := geo.leftW
+		sideW := geo.rightW
+		
+		m.agentTable.SetDimensions(mainW, contentH)
+		
+		left := m.agentTable.View()
+		right := m.renderRightPanel(sideW, contentH, geo)
+		sep := buildVSep(contentH)
+		content = lipgloss.JoinHorizontal(lipgloss.Top, left, sep, right)
+	}
 
 	thinDiv := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(ts().Border)).
 		Render(strings.Repeat("─", w))
 
 	footerView := m.footerComp.View()
-	base := header + "\n" + thinDiv + "\n" + content + "\n" + thinDiv + "\n" + input + "\n" + footerView
+	base := header + "\n" + tabBar + "\n" + thinDiv + "\n" + content + "\n" + thinDiv + "\n" + input + "\n" + footerView
 	if m.showCommandPalette {
 		base += "\n" + thinDiv + "\n" + m.renderCommandPalette(w)
 	}

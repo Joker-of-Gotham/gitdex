@@ -1,28 +1,121 @@
+// Package sidebar provides a scrollable detail panel with Markdown rendering.
+// Inspired by gh-dash's components/sidebar.
 package sidebar
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/lipgloss/v2"
-
-	"github.com/Joker-of-Gotham/gitdex/internal/tui/context"
+	tuictx "github.com/Joker-of-Gotham/gitdex/internal/tui/context"
 )
 
-// Model manages the sidebar preview pane.
-// Aligned with gh-dash's sidebar.Model.
+// Model is the sidebar component.
 type Model struct {
-	IsOpen   bool
-	content  string
-	title    string
-	width    int
-	height   int
-	scrollY  int
-	ctx      *context.ProgramContext
+	IsOpen  bool
+	ctx     *tuictx.ProgramContext
+	content string
+	lines   []string
+	topLine int
+	width   int
+	height  int
 }
 
 // New creates a sidebar model.
-func New() Model {
-	return Model{}
+func New(ctx *tuictx.ProgramContext) Model {
+	return Model{
+		IsOpen: true,
+		ctx:    ctx,
+		width:  40,
+		height: 20,
+	}
+}
+
+// SetContent sets the sidebar content (plain text or pre-rendered).
+func (m *Model) SetContent(text string) {
+	m.content = text
+	m.lines = strings.Split(text, "\n")
+	m.topLine = 0
+}
+
+// ScrollDown scrolls down by n lines.
+func (m *Model) ScrollDown(n int) {
+	maxTop := len(m.lines) - m.height
+	if maxTop < 0 {
+		maxTop = 0
+	}
+	m.topLine += n
+	if m.topLine > maxTop {
+		m.topLine = maxTop
+	}
+}
+
+// ScrollUp scrolls up by n lines.
+func (m *Model) ScrollUp(n int) {
+	m.topLine -= n
+	if m.topLine < 0 {
+		m.topLine = 0
+	}
+}
+
+// PageDown scrolls down by one page.
+func (m *Model) PageDown() {
+	m.ScrollDown(m.height)
+}
+
+// PageUp scrolls up by one page.
+func (m *Model) PageUp() {
+	m.ScrollUp(m.height)
+}
+
+// View renders the sidebar.
+func (m *Model) View() string {
+	if !m.IsOpen || m.width <= 0 {
+		return ""
+	}
+
+	if len(m.lines) == 0 {
+		empty := m.ctx.Styles.Section.EmptyState.Render("No content")
+		return m.ctx.Styles.Sidebar.Border.
+			Width(m.width).
+			Height(m.height).
+			Render(empty)
+	}
+
+	end := m.topLine + m.height
+	if end > len(m.lines) {
+		end = len(m.lines)
+	}
+
+	visible := m.lines[m.topLine:end]
+	var sb strings.Builder
+	for i, line := range visible {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+		runes := []rune(line)
+		maxW := m.width - 4
+		if maxW < 1 {
+			maxW = 1
+		}
+		if len(runes) > maxW {
+			runes = runes[:maxW]
+		}
+		sb.WriteString(string(runes))
+	}
+
+	body := m.ctx.Styles.Sidebar.Content.Render(sb.String())
+
+	scrollInfo := m.ctx.Styles.Sidebar.Pager.Render(
+		fmt.Sprintf(" %d%% ", m.scrollPercent()),
+	)
+
+	contentWithScroll := lipgloss.JoinVertical(lipgloss.Left, body, scrollInfo)
+
+	return m.ctx.Styles.Sidebar.Border.
+		Width(m.width).
+		Height(m.height).
+		Render(contentWithScroll)
 }
 
 // SetDimensions updates the sidebar size.
@@ -31,93 +124,24 @@ func (m *Model) SetDimensions(w, h int) {
 	m.height = h
 }
 
-// SetContent sets the sidebar body.
-func (m *Model) SetContent(title, content string) {
-	m.title = title
-	m.content = content
-	m.scrollY = 0
-}
-
-// UpdateProgramContext stores the program context.
-func (m *Model) UpdateProgramContext(ctx *context.ProgramContext) {
+// UpdateProgramContext updates the shared context.
+func (m *Model) UpdateProgramContext(ctx *tuictx.ProgramContext) {
 	m.ctx = ctx
 }
 
-// ScrollDown scrolls the sidebar content down.
-func (m *Model) ScrollDown(n int) {
-	lines := strings.Count(m.content, "\n") + 1
-	maxScroll := lines - m.height + 2
-	if maxScroll < 0 {
-		maxScroll = 0
+func (m *Model) scrollPercent() int {
+	if len(m.lines) <= m.height {
+		return 100
 	}
-	m.scrollY += n
-	if m.scrollY > maxScroll {
-		m.scrollY = maxScroll
-	}
+	return m.topLine * 100 / (len(m.lines) - m.height)
 }
 
-// ScrollUp scrolls the sidebar content up.
-func (m *Model) ScrollUp(n int) {
-	m.scrollY -= n
-	if m.scrollY < 0 {
-		m.scrollY = 0
-	}
+// Toggle toggles the sidebar open/closed.
+func (m *Model) Toggle() {
+	m.IsOpen = !m.IsOpen
 }
 
-// View renders the sidebar.
-func (m Model) View() string {
-	if !m.IsOpen || m.width <= 0 {
-		return ""
-	}
-
-	var containerStyle lipgloss.Style
-	if m.ctx != nil {
-		containerStyle = m.ctx.Styles.Sidebar.ContainerStyle
-	} else {
-		containerStyle = lipgloss.NewStyle().
-			BorderLeft(true).
-			BorderStyle(lipgloss.NormalBorder())
-	}
-
-	innerW := m.width - 2
-	if innerW < 1 {
-		innerW = 1
-	}
-
-	var b strings.Builder
-	if m.title != "" {
-		var titleStyle lipgloss.Style
-		if m.ctx != nil {
-			titleStyle = m.ctx.Styles.Sidebar.TitleStyle
-		} else {
-			titleStyle = lipgloss.NewStyle().Bold(true)
-		}
-		b.WriteString(titleStyle.Width(innerW).Render(m.title))
-		b.WriteString("\n")
-	}
-
-	lines := strings.Split(m.content, "\n")
-	start := m.scrollY
-	if start >= len(lines) {
-		start = 0
-	}
-	end := start + m.height - 2
-	if end > len(lines) {
-		end = len(lines)
-	}
-	visible := lines[start:end]
-	body := strings.Join(visible, "\n")
-
-	var contentStyle lipgloss.Style
-	if m.ctx != nil {
-		contentStyle = m.ctx.Styles.Sidebar.ContentStyle
-	} else {
-		contentStyle = lipgloss.NewStyle()
-	}
-	b.WriteString(contentStyle.Width(innerW).Render(body))
-
-	return containerStyle.
-		Width(m.width).
-		Height(m.height).
-		Render(b.String())
+// ContentLength returns the number of content lines.
+func (m *Model) ContentLength() int {
+	return len(m.lines)
 }

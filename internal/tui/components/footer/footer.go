@@ -1,117 +1,104 @@
+// Package footer provides a dynamic help bar component.
+// Inspired by gh-dash's components/footer.
 package footer
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/lipgloss/v2"
-
-	"github.com/Joker-of-Gotham/gitdex/internal/tui/context"
-	"github.com/Joker-of-Gotham/gitdex/internal/tui/keys"
+	tuictx "github.com/Joker-of-Gotham/gitdex/internal/tui/context"
 )
 
-// Model manages the bottom status bar and help display.
-// Aligned with gh-dash's footer.Model pattern.
+// Binding describes a single key binding for display.
+type Binding struct {
+	Key  string
+	Desc string
+}
+
+// Model is the footer component.
 type Model struct {
-	ctx     *context.ProgramContext
-	ShowAll bool
-	width   int
+	ctx      *tuictx.ProgramContext
+	bindings []Binding
+	width    int
+	showAll  bool
 }
 
 // New creates a footer model.
-func New() Model {
-	return Model{}
+func New(ctx *tuictx.ProgramContext) Model {
+	return Model{
+		ctx: ctx,
+	}
 }
 
-// SetDimensions sets the footer width.
-func (m *Model) SetDimensions(w int) {
+// SetBindings updates the displayed key bindings.
+func (m *Model) SetBindings(bindings []Binding) {
+	m.bindings = bindings
+}
+
+// SetWidth sets the available width.
+func (m *Model) SetWidth(w int) {
 	m.width = w
 }
 
-// UpdateProgramContext stores the program context.
-func (m *Model) UpdateProgramContext(ctx *context.ProgramContext) {
-	m.ctx = ctx
-}
-
-// ToggleHelp toggles the full help display.
+// ToggleHelp toggles full help display.
 func (m *Model) ToggleHelp() {
-	m.ShowAll = !m.ShowAll
+	m.showAll = !m.showAll
 }
 
-// View renders the footer bar.
-func (m Model) View() string {
-	var keyStyle, descStyle, containerStyle lipgloss.Style
-	if m.ctx != nil {
-		keyStyle = m.ctx.Styles.Footer.HelpKeyStyle
-		descStyle = m.ctx.Styles.Footer.HelpDescStyle
-		containerStyle = m.ctx.Styles.Footer.ContainerStyle
-	} else {
-		keyStyle = lipgloss.NewStyle().Bold(true)
-		descStyle = lipgloss.NewStyle()
-		containerStyle = lipgloss.NewStyle()
+// View renders the footer.
+func (m *Model) View() string {
+	modeLabel := m.ctx.Styles.Footer.ViewSwitch.Render(m.ctx.Mode)
+
+	ctxLabel := ""
+	if m.ctx.ContextMax > 0 {
+		ctxLabel = m.ctx.Styles.Footer.Help.Render(
+			fmt.Sprintf("ctx[%dk/%dk %d%%]",
+				m.ctx.ContextUsed/1000,
+				m.ctx.ContextMax/1000,
+				m.ctx.ContextPercent(),
+			),
+		)
 	}
 
-	viewSwitcher := m.renderViewSwitcher()
+	bindings := m.renderBindings()
 
-	var helpParts []string
-	if m.ShowAll {
-		for _, group := range keys.Keys.FullHelp() {
-			for _, b := range group {
-				if b.Enabled() {
-					helpParts = append(helpParts,
-						keyStyle.Render(b.Help)+" "+descStyle.Render(b.Desc))
-				}
-			}
-		}
-	} else {
-		helpParts = append(helpParts, keyStyle.Render("?")+" "+descStyle.Render("help"))
-		helpParts = append(helpParts, keyStyle.Render("q")+" "+descStyle.Render("quit"))
+	spacerWidth := m.width - lipgloss.Width(modeLabel) -
+		lipgloss.Width(ctxLabel) - lipgloss.Width(bindings) - 6
+	if spacerWidth < 1 {
+		spacerWidth = 1
 	}
+	spacer := strings.Repeat(" ", spacerWidth)
 
-	helpStr := strings.Join(helpParts, "  ")
-	spacer := ""
-	usedWidth := lipgloss.Width(viewSwitcher) + lipgloss.Width(helpStr) + 4
-	if m.width > usedWidth {
-		spacer = strings.Repeat(" ", m.width-usedWidth)
-	}
-
-	line := viewSwitcher + spacer + helpStr
-	return containerStyle.Width(m.width).Render(line)
+	return m.ctx.Styles.Footer.Container.
+		Width(m.width).
+		Render(
+			lipgloss.JoinHorizontal(lipgloss.Top,
+				modeLabel, " ", ctxLabel, spacer, bindings,
+			),
+		)
 }
 
-func (m Model) renderViewSwitcher() string {
-	type viewTab struct {
-		label string
-		key   string
-	}
-	tabs := []viewTab{
-		{"◆ Maintain", "maintain"},
-		{"◎ Goal", "goal"},
-		{"✦ Creative", "creative"},
-	}
-	currentView := ""
-	if m.ctx != nil {
-		currentView = m.ctx.View.String()
+func (m *Model) renderBindings() string {
+	limit := 6
+	if m.showAll {
+		limit = len(m.bindings)
 	}
 
 	var parts []string
-	for _, tab := range tabs {
-		if tab.key == currentView {
-			style := lipgloss.NewStyle().Bold(true)
-			if m.ctx != nil {
-				style = style.
-					Foreground(m.ctx.Styles.Footer.ViewSwitcherStyle.GetForeground()).
-					Background(m.ctx.Styles.Footer.ViewSwitcherStyle.GetForeground()).
-					Foreground(lipgloss.Color("#1A1B26")).
-					Padding(0, 1)
-			}
-			parts = append(parts, style.Render(tab.label))
-		} else {
-			style := lipgloss.NewStyle()
-			if m.ctx != nil {
-				style = m.ctx.Styles.Footer.HelpDescStyle.Padding(0, 1)
-			}
-			parts = append(parts, style.Render(tab.label))
+	for i, b := range m.bindings {
+		if i >= limit {
+			parts = append(parts, m.ctx.Styles.Footer.Help.Render("?:more"))
+			break
 		}
+		key := m.ctx.Styles.Footer.KeyBinding.Render(b.Key)
+		desc := m.ctx.Styles.Footer.Description.Render(b.Desc)
+		parts = append(parts, key+":"+desc)
 	}
-	return strings.Join(parts, "")
+	return strings.Join(parts, " ")
+}
+
+// UpdateProgramContext updates the shared context.
+func (m *Model) UpdateProgramContext(ctx *tuictx.ProgramContext) {
+	m.ctx = ctx
 }

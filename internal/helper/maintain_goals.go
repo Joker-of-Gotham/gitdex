@@ -2,12 +2,12 @@ package helper
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/Joker-of-Gotham/gitdex/internal/dotgitdex"
 	"github.com/Joker-of-Gotham/gitdex/internal/llm"
+	"github.com/Joker-of-Gotham/gitdex/internal/llm/jsonfix"
 )
 
 // GoalMaintainer updates goal-list.md completion status based on execution results.
@@ -90,7 +90,6 @@ Triage this goal and decompose if achievable.`, goalTitle, gitContent)
 		return nil, err
 	}
 
-	text := cleanJSON(resp.Text)
 	var raw struct {
 		Achievable bool   `json:"achievable"`
 		Category   string `json:"category"`
@@ -99,7 +98,7 @@ Triage this goal and decompose if achievable.`, goalTitle, gitContent)
 			Title string `json:"title"`
 		} `json:"todos"`
 	}
-	if err := json.Unmarshal([]byte(text), &raw); err != nil {
+	if err := jsonfix.RepairAndUnmarshal(resp.Text, &raw); err != nil {
 		return nil, err
 	}
 
@@ -184,9 +183,8 @@ For each sub-task, check: does the execution log show [OK] entries that accompli
 		return err
 	}
 
-	text := cleanJSON(resp.Text)
 	var result goalUpdateResponse
-	if err := json.Unmarshal([]byte(text), &result); err != nil {
+	if err := jsonfix.RepairAndUnmarshal(resp.Text, &result); err != nil {
 		return err
 	}
 

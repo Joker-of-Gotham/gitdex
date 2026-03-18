@@ -16,11 +16,21 @@ func languageName(lang string) string {
 	}
 }
 
+// PlatformOS returns the current OS name for use in prompt context.
+// Exported so callers that already hold a Platform can pass the OS string.
+func PlatformOS() string {
+	return runtime.GOOS
+}
+
 // platformGuidance returns a one-line OS identifier for prompt injection.
-// All detailed platform rules (allowed commands, tool restrictions) are
-// enforced by the executor code layer, not the prompt.
 func platformGuidance() string {
-	switch runtime.GOOS {
+	return PlatformGuidanceForOS(PlatformOS())
+}
+
+// PlatformGuidanceForOS returns platform guidance for a given OS string,
+// enabling injection without depending on runtime.GOOS at call site.
+func PlatformGuidanceForOS(osName string) string {
+	switch osName {
 	case "windows":
 		return "PLATFORM: Windows. Use file_read/file_write for all file operations."
 	default:

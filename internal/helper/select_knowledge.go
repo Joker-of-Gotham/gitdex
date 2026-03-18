@@ -2,11 +2,11 @@ package helper
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 
 	"github.com/Joker-of-Gotham/gitdex/internal/dotgitdex"
 	"github.com/Joker-of-Gotham/gitdex/internal/llm"
+	"github.com/Joker-of-Gotham/gitdex/internal/llm/jsonfix"
 	promptv2 "github.com/Joker-of-Gotham/gitdex/internal/llm/promptv2"
 )
 
@@ -43,9 +43,8 @@ func (ks *KnowledgeSelector) callAndParse(ctx context.Context, system, user stri
 		return nil, err
 	}
 
-	text := cleanJSON(resp.Text)
 	var result knowledgeSelectionResponse
-	if err := json.Unmarshal([]byte(text), &result); err != nil {
+	if err := jsonfix.RepairAndUnmarshal(resp.Text, &result); err != nil {
 		return nil, err
 	}
 	return result.SelectedKnowledge, nil

@@ -718,8 +718,8 @@ func TestExecuteSuggestion_IdempotencySkipForDuplicateFileWrite(t *testing.T) {
 	if !second.Success {
 		t.Fatalf("second execution should be idempotent success, stderr=%q", second.Stderr)
 	}
-	if !contains(second.Stdout, "idempotency preflight") {
-		t.Fatalf("expected idempotency skip message, got %q", second.Stdout)
+	if !contains(second.Stdout, "idempotency preflight") && !contains(second.Stdout, "action signature duplicate") {
+		t.Fatalf("expected idempotency or dedup skip message, got %q", second.Stdout)
 	}
 }
 

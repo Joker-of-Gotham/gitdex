@@ -20,6 +20,7 @@ import (
 	"github.com/Joker-of-Gotham/gitdex/internal/llm"
 	"github.com/Joker-of-Gotham/gitdex/internal/llmfactory"
 	"github.com/Joker-of-Gotham/gitdex/internal/observability"
+	"github.com/Joker-of-Gotham/gitdex/internal/tui/components/table"
 	"github.com/Joker-of-Gotham/gitdex/internal/tui/oplog"
 	"github.com/Joker-of-Gotham/gitdex/internal/tui/theme"
 )
@@ -30,12 +31,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.ready = true
-		m.programCtx.ScreenWidth = msg.Width
-		m.programCtx.ScreenHeight = msg.Height
-		m.programCtx.MainContentWidth = msg.Width
-		m.programCtx.MainContentHeight = msg.Height - 4
+		m.programCtx.UpdateDimensions(msg.Width, msg.Height)
 		m.headerComp.SetDimensions(msg.Width)
-		m.footerComp.SetDimensions(msg.Width)
+		m.footerComp.SetWidth(msg.Width)
+		m.tabsComp.SetWidth(msg.Width)
 		m.sidebarComp.SetDimensions(msg.Width/3, msg.Height-4)
 		return m, nil
 
@@ -235,6 +234,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.round != nil {
 			m.lastTokenUsed = msg.round.TokensUsed
 			m.lastTokenMax = msg.round.TokensBudget
+			m.programCtx.ContextUsed = msg.round.TokensUsed
+			m.programCtx.ContextMax = msg.round.TokensBudget
 		}
 
 		m.suggestions = nil
@@ -259,11 +260,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					})
 					m.consecutiveReplans = 0
 					m.lastSuggestionSigs = nil
+					(&m).syncAgentTable()
 					return m, m.refreshGitInfo()
 				}
 			}
 			m.lastSuggestionSigs = newSigs
 		}
+
+		(&m).syncAgentTable()
 
 		if len(m.suggestions) == 0 {
 			m.opLog.Add(oplog.Entry{Type: oplog.EntryLLMOutput,
@@ -369,30 +373,64 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		m.suggIdx++
+		(&m).syncAgentTable()
 
 		if s.Status == StatusFailed {
-			for i := m.suggIdx; i < len(m.suggestions); i++ {
-				m.suggestions[i].Status = StatusSkipped
+			recovery := contract.RecoveryAbort
+			if msg.result != nil {
+				recovery = msg.result.RecoverBy.Type
 			}
-			m.runAllMode = false
-			m.consecutiveReplans++
-			observability.RecordReplanAttempt()
-			_ = m.orchestrator.FlushLog()
 
-			if m.consecutiveReplans >= maxConsecutiveReplans {
+			switch recovery {
+			case contract.RecoverySkip:
+				// Non-fatal (already exists, nothing to commit): continue to next suggestion.
+				m.opLog.Add(oplog.Entry{
+					Type:    oplog.EntryStateRefresh,
+					Summary: fmt.Sprintf("Non-fatal failure (skip): %s", s.Error),
+				})
+				if m.suggIdx < len(m.suggestions) && (m.mode == "auto" || m.mode == "cruise" || m.runAllMode) {
+					return m, m.executeNext()
+				}
+				return m, m.refreshGitInfo()
+
+			case contract.RecoveryManual:
+				// Auth/permission failure: halt and notify user. Do not auto-replan.
+				for i := m.suggIdx; i < len(m.suggestions); i++ {
+					m.suggestions[i].Status = StatusSkipped
+				}
+				m.runAllMode = false
+				_ = m.orchestrator.FlushLog()
 				m.opLog.Add(oplog.Entry{
 					Type:    oplog.EntryCmdFail,
-					Summary: fmt.Sprintf("Circuit breaker: %d consecutive replans reached — halting automatic execution. Use /run to retry manually.", maxConsecutiveReplans),
+					Summary: "Manual intervention required: " + s.Error,
 				})
-				m.consecutiveReplans = 0
 				return m, m.refreshGitInfo()
-			}
 
-			m.opLog.Add(oplog.Entry{
-				Type:    oplog.EntryStateRefresh,
-				Summary: fmt.Sprintf("Replanning after failure (attempt %d/%d)...", m.consecutiveReplans, maxConsecutiveReplans),
-			})
-			return m, tea.Batch(m.refreshGitInfo(), m.updateGoalProgressWithReplan(true))
+			default:
+				// RecoveryAbort or RecoveryRetry: skip remaining, trigger replan.
+				for i := m.suggIdx; i < len(m.suggestions); i++ {
+					m.suggestions[i].Status = StatusSkipped
+				}
+				m.runAllMode = false
+				m.consecutiveReplans++
+				observability.RecordReplanAttempt()
+				_ = m.orchestrator.FlushLog()
+
+				if m.consecutiveReplans >= maxConsecutiveReplans {
+					m.opLog.Add(oplog.Entry{
+						Type:    oplog.EntryCmdFail,
+						Summary: fmt.Sprintf("Circuit breaker: %d consecutive replans reached — halting automatic execution. Use /run to retry manually.", maxConsecutiveReplans),
+					})
+					m.consecutiveReplans = 0
+					return m, m.refreshGitInfo()
+				}
+
+				m.opLog.Add(oplog.Entry{
+					Type:    oplog.EntryStateRefresh,
+					Summary: fmt.Sprintf("Replanning after failure (attempt %d/%d)...", m.consecutiveReplans, maxConsecutiveReplans),
+				})
+				return m, tea.Batch(m.refreshGitInfo(), m.updateGoalProgressWithReplan(true))
+			}
 		}
 
 		if m.suggIdx >= len(m.suggestions) {
@@ -572,6 +610,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleMouseWheel(msg)
 	}
 
+	if m.page == PageMain {
+		(&m).syncSidebar()
+	}
+
 	return m, nil
 }
 
@@ -697,8 +739,13 @@ func (m Model) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
-	if key == "tab" {
-		return m.cycleFocus(), nil
+	if key == "tab" && !m.composerFocus {
+		m.tabsComp.Next()
+		return m, nil
+	}
+	if key == "shift+tab" && !m.composerFocus {
+		m.tabsComp.Prev()
+		return m, nil
 	}
 
 	if isEscKey(key) && m.composerFocus {
@@ -791,12 +838,36 @@ func (m Model) handleNavigation(key string) (tea.Model, tea.Cmd) {
 	}
 	switch key {
 	case "up", "k":
+		if zone == FocusLeft {
+			m.agentTable.PrevItem()
+			(&m).syncSidebar()
+		} else if m.detailPaneOpen && (zone == FocusGit || zone == FocusGoals || zone == FocusLog) {
+			m.sidebarComp.ScrollUp(1)
+		}
 		m.applyScrollDelta(zone, -scrollStepLine)
 	case "down", "j":
+		if zone == FocusLeft {
+			m.agentTable.NextItem()
+			(&m).syncSidebar()
+		} else if m.detailPaneOpen && (zone == FocusGit || zone == FocusGoals || zone == FocusLog) {
+			m.sidebarComp.ScrollDown(1)
+		}
 		m.applyScrollDelta(zone, scrollStepLine)
 	case "pgup":
+		if zone == FocusLeft {
+			m.agentTable.PageUp()
+			(&m).syncSidebar()
+		} else if m.detailPaneOpen && (zone == FocusGit || zone == FocusGoals || zone == FocusLog) {
+			m.sidebarComp.PageUp()
+		}
 		m.applyScrollDelta(zone, -pageSize)
 	case "pgdown":
+		if zone == FocusLeft {
+			m.agentTable.PageDown()
+			(&m).syncSidebar()
+		} else if m.detailPaneOpen && (zone == FocusGit || zone == FocusGoals || zone == FocusLog) {
+			m.sidebarComp.PageDown()
+		}
 		m.applyScrollDelta(zone, pageSize)
 	case "ctrl+u":
 		m.applyScrollDelta(zone, -(pageSize / 2))
@@ -824,6 +895,13 @@ func (m Model) handleNavigation(key string) (tea.Model, tea.Cmd) {
 		}
 	case "r":
 		return m, m.startAnalysis()
+	case "p":
+		m.detailPaneOpen = !m.detailPaneOpen
+		m.programCtx.SidebarOpen = m.detailPaneOpen
+	case "left", "h":
+		m.applyScrollDelta(zone, -1)
+	case "right", "l":
+		m.applyScrollDelta(zone, 1)
 	}
 	return m, nil
 }
@@ -2108,6 +2186,69 @@ func (m *Model) executeNext() tea.Cmd {
 		result := orch.ExecuteSingleSuggestion(ctx, idx+1, item)
 		return executionResultMsg{index: idx, result: result}
 	}
+}
+
+func (m *Model) syncAgentTable() {
+	var rows []table.Row
+	for _, s := range m.suggestions {
+		status := ""
+		switch s.Status {
+		case StatusPending:
+			status = "WAIT"
+		case StatusExecuting:
+			status = "RUN"
+		case StatusDone:
+			status = "OK"
+		case StatusFailed:
+			status = "ERR"
+		case StatusSkipped:
+			status = "SKIP"
+		}
+		
+		cmdStr := ""
+		if len(s.Item.Action.Command) > 0 {
+			cmdStr = s.Item.Action.Command
+		} else if s.Item.Action.FilePath != "" {
+			cmdStr = s.Item.Action.FileOp + " " + s.Item.Action.FilePath
+		}
+		
+		rows = append(rows, table.Row{status, s.Item.Action.Type, cmdStr})
+	}
+	m.agentTable.SetRows(rows)
+}
+
+func (m *Model) syncSidebar() {
+	if len(m.suggestions) == 0 {
+		geo := m.calcLayout()
+		m.sidebarComp.SetContent(m.renderRightPanel(geo.rightW, geo.contentH, geo))
+		return
+	}
+	idx := m.agentTable.CurrIdx()
+	if idx < 0 || idx >= len(m.suggestions) {
+		return
+	}
+	s := m.suggestions[idx]
+	
+	var sb strings.Builder
+	sb.WriteString(titleStyle().Render("◆ " + s.Item.Name) + "\n\n")
+	sb.WriteString(infoStyle().Render("Reason: ") + s.Item.Reason + "\n\n")
+	
+	cmdStr := ""
+	if len(s.Item.Action.Command) > 0 {
+		cmdStr = s.Item.Action.Command
+	} else if s.Item.Action.FilePath != "" {
+		cmdStr = s.Item.Action.FileOp + " " + s.Item.Action.FilePath
+	}
+	sb.WriteString(commandStyle().Render("$ " + cmdStr) + "\n\n")
+	
+	if s.Output != "" {
+		sb.WriteString(successStyle().Render("Output:") + "\n" + s.Output + "\n\n")
+	}
+	if s.Error != "" {
+		sb.WriteString(dangerStyle().Render("Error:") + "\n" + s.Error + "\n\n")
+	}
+	
+	m.sidebarComp.SetContent(sb.String())
 }
 
 func (m Model) findNextPending() int {
