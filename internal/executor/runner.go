@@ -492,18 +492,8 @@ func (r *Runner) autoFixStagedWhitespace(ctx context.Context) {
 
 	fileSet := make(map[string]bool)
 
-	// Staged files.
+	// Only fix staged files to avoid accidentally staging unrelated changes.
 	if out, _, err := r.gitCLI.Exec(ctx, "diff", "--cached", "--name-only", "--diff-filter=ACMR"); err == nil {
-		for _, name := range strings.Split(strings.TrimSpace(out), "\n") {
-			name = strings.TrimSpace(name)
-			if name != "" {
-				fileSet[name] = true
-			}
-		}
-	}
-
-	// Unstaged modified tracked files (covers `git commit -a`).
-	if out, _, err := r.gitCLI.Exec(ctx, "diff", "--name-only", "--diff-filter=ACMR"); err == nil {
 		for _, name := range strings.Split(strings.TrimSpace(out), "\n") {
 			name = strings.TrimSpace(name)
 			if name != "" {

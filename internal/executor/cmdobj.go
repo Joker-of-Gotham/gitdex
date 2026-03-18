@@ -151,7 +151,8 @@ func (c *CmdObj) cleanup() {
 }
 
 // StripTrailingWhitespace removes trailing whitespace from each line
-// and normalizes line endings.
+// and normalizes line endings. Preserves a single trailing newline
+// (POSIX text file convention required by many git hooks).
 func StripTrailingWhitespace(s string) string {
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	s = strings.ReplaceAll(s, "\r", "\n")
@@ -159,8 +160,13 @@ func StripTrailingWhitespace(s string) string {
 	for i, line := range lines {
 		lines[i] = strings.TrimRight(line, " \t\v\f\u00A0")
 	}
+	for len(lines) > 1 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
 	result := strings.Join(lines, "\n")
-	result = strings.TrimRight(result, "\n")
+	if result != "" {
+		result += "\n"
+	}
 	return result
 }
 

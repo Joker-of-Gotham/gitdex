@@ -10,6 +10,7 @@ import (
 
 	"github.com/Joker-of-Gotham/gitdex/internal/dotgitdex"
 	"github.com/Joker-of-Gotham/gitdex/internal/observability"
+	tuictx "github.com/Joker-of-Gotham/gitdex/internal/tui/context"
 	"github.com/Joker-of-Gotham/gitdex/internal/tui/theme"
 )
 
@@ -117,9 +118,7 @@ func (m Model) calcLayout() layoutGeo {
 		h = 24
 	}
 	tok := layoutTokensForWidth(w)
-	headerH := tok.headerH
-	inputH := tok.inputH
-	contentH := h - 7
+	contentH := h - 8
 	if contentH < tok.minContentH {
 		contentH = tok.minContentH
 	}
@@ -147,7 +146,7 @@ func (m Model) calcLayout() layoutGeo {
 	if logH < tok.minPanelH {
 		logH = tok.minPanelH
 	}
-	return layoutGeo{headerH, inputH, contentH, leftW, rightW, gitH, goalH, logH}
+	return layoutGeo{1, 2, contentH, leftW, rightW, gitH, goalH, logH}
 }
 
 // ── View entry ────────────────────────────────────────────────────────
@@ -560,7 +559,7 @@ func (m Model) renderMainView() string {
 	if w <= 0 {
 		w = 80
 	}
-	header := m.renderHeader(w)
+	m.tabsComp.SetWidth(w)
 	tabBar := m.tabsComp.View()
 	input := m.renderInput(w)
 
@@ -569,24 +568,21 @@ func (m Model) renderMainView() string {
 		contentH = 3
 	}
 
+	activeView := m.tabsComp.CurrentView()
 	var content string
-	if m.detailPaneOpen {
+
+	switch activeView {
+	case tuictx.GitView:
+		content = m.renderGitFullView(w, contentH, geo)
+	case tuictx.WorkspaceView:
+		content = m.renderWorkspaceFullView(w, contentH)
+	case tuictx.GitHubView:
+		content = m.renderGitHubFullView(w, contentH)
+	default:
 		mainW := geo.leftW
 		sideW := geo.rightW
-		
 		m.agentTable.SetDimensions(mainW, contentH)
-		m.sidebarComp.SetDimensions(sideW, contentH)
-		
-		left := m.agentTable.View()
-		sep := buildVSep(contentH)
-		right := m.sidebarComp.View()
-		content = lipgloss.JoinHorizontal(lipgloss.Top, left, sep, right)
-	} else {
-		mainW := geo.leftW
-		sideW := geo.rightW
-		
-		m.agentTable.SetDimensions(mainW, contentH)
-		
+
 		left := m.agentTable.View()
 		right := m.renderRightPanel(sideW, contentH, geo)
 		sep := buildVSep(contentH)
@@ -597,8 +593,10 @@ func (m Model) renderMainView() string {
 		Foreground(lipgloss.Color(ts().Border)).
 		Render(strings.Repeat("─", w))
 
+	m.footerComp.SetWidth(w)
 	footerView := m.footerComp.View()
-	base := header + "\n" + tabBar + "\n" + thinDiv + "\n" + content + "\n" + thinDiv + "\n" + input + "\n" + footerView
+	statusLine := m.renderStatusLine(w)
+	base := tabBar + "\n" + thinDiv + "\n" + content + "\n" + thinDiv + "\n" + input + "\n" + statusLine + "\n" + footerView
 	if m.showCommandPalette {
 		base += "\n" + thinDiv + "\n" + m.renderCommandPalette(w)
 	}
@@ -608,6 +606,83 @@ func (m Model) renderMainView() string {
 	return base
 }
 
+// ── Tab-specific full views ───────────────────────────────────────────
+
+func (m Model) renderGitFullView(w, h int, geo layoutGeo) string {
+	mainW := geo.leftW
+	sideW := geo.rightW
+
+	gitContent := m.renderGitPanel(mainW-2, h-2)
+	left := m.panelBox(FocusGit, mainW, h).Render(
+		panelTitle("Repository", true) + "\n" + gitContent,
+	)
+
+	var sb strings.Builder
+	sb.WriteString(sectionHeaderStyle().Render(" ◆ Branches") + "\n")
+	for _, b := range m.gitInfo.LocalBranches {
+		marker := mutedStyle().Render("  ")
+		if b.IsCurrent {
+			marker = successBoldStyle().Render("● ")
+		}
+		line := marker + accentStyle().Render(b.Name)
+		if b.Upstream != "" {
+			line += mutedStyle().Render(" → " + b.Upstream)
+		}
+		if b.Ahead > 0 {
+			line += warningStyle().Render(fmt.Sprintf(" ↑%d", b.Ahead))
+		}
+		if b.Behind > 0 {
+			line += dangerStyle().Render(fmt.Sprintf(" ↓%d", b.Behind))
+		}
+		sb.WriteString(" " + line + "\n")
+	}
+	if m.gitInfo.Stash > 0 {
+		sb.WriteString("\n" + sectionHeaderStyle().Render(" ◆ Stash") + "\n")
+		sb.WriteString(fmt.Sprintf("  %d entries\n", m.gitInfo.Stash))
+	}
+	if len(m.gitInfo.Tags) > 0 {
+		sb.WriteString("\n" + sectionHeaderStyle().Render(" ◆ Tags") + "\n")
+		for _, t := range m.gitInfo.Tags {
+			sb.WriteString("  " + mutedStyle().Render(t) + "\n")
+		}
+	}
+	right := m.panelBox(FocusGoals, sideW, h).Render(sb.String())
+	sep := buildVSep(h)
+	return lipgloss.JoinHorizontal(lipgloss.Top, left, sep, right)
+}
+
+func (m Model) renderWorkspaceFullView(w, h int) string {
+	var lines []string
+	lines = append(lines, sectionHeaderStyle().Render(" ◆ Working Tree"))
+	if m.gitInfo.WorkingDirty == 0 {
+		lines = append(lines, mutedStyle().Render("  Clean — no modified files"))
+	} else {
+		for _, f := range m.gitInfo.WorkingFiles {
+			lines = append(lines, "  "+warningStyle().Render("M")+" "+f)
+		}
+	}
+	lines = append(lines, "")
+	lines = append(lines, sectionHeaderStyle().Render(" ◆ Staging Area"))
+	if m.gitInfo.StagingDirty == 0 {
+		lines = append(lines, mutedStyle().Render("  Nothing staged"))
+	} else {
+		for _, f := range m.gitInfo.StagingFiles {
+			lines = append(lines, "  "+successStyle().Render("A")+" "+f)
+		}
+	}
+	return applyPanelScroll(lines, m.panelScrolls[FocusLeft], w, h)
+}
+
+func (m Model) renderGitHubFullView(w, h int) string {
+	var lines []string
+	lines = append(lines, sectionHeaderStyle().Render(" ◆ GitHub"))
+	lines = append(lines, "")
+	lines = append(lines, mutedStyle().Render("  GitHub view — use /creative to generate goals from issues & PRs"))
+	lines = append(lines, "")
+	lines = append(lines, dimLabel("repo")+"  "+valueStyle().Render(m.configInfo.RepoRoot))
+	return applyPanelScroll(lines, m.panelScrolls[FocusLeft], w, h)
+}
+
 func buildVSep(h int) string {
 	ch := borderStyle().Render("│")
 	lines := make([]string, h)
@@ -615,6 +690,42 @@ func buildVSep(h int) string {
 		lines[i] = ch
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (m Model) renderStatusLine(w int) string {
+	t := ts()
+	parts := []string{
+		modePill(m.mode),
+		statusPill(m.analyzing, m.executing),
+	}
+	if m.activeFlow != "idle" {
+		parts = append(parts, lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.Accent)).
+			Render("flow:"+m.activeFlow))
+	}
+	if m.activeGoal != "" {
+		goalLabel := m.activeGoal
+		if len(goalLabel) > 30 {
+			goalLabel = goalLabel[:27] + "..."
+		}
+		parts = append(parts, lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.Info)).
+			Render("goal:"+goalLabel))
+	}
+	if m.lastTokenMax > 0 {
+		pct := m.lastTokenUsed * 100 / m.lastTokenMax
+		parts = append(parts, lipgloss.NewStyle().
+			Foreground(lipgloss.Color(t.TextMuted)).
+			Render(fmt.Sprintf("ctx:%s/%s(%d%%)",
+				formatTokenCount(m.lastTokenUsed),
+				formatTokenCount(m.lastTokenMax), pct)))
+	}
+	left := strings.Join(parts, "  ")
+	pad := w - lipgloss.Width(left)
+	if pad < 0 {
+		pad = 0
+	}
+	return left + strings.Repeat(" ", pad)
 }
 
 func modePill(mode string) string {

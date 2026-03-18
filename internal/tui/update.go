@@ -21,6 +21,7 @@ import (
 	"github.com/Joker-of-Gotham/gitdex/internal/llmfactory"
 	"github.com/Joker-of-Gotham/gitdex/internal/observability"
 	"github.com/Joker-of-Gotham/gitdex/internal/tui/components/table"
+	tuictx "github.com/Joker-of-Gotham/gitdex/internal/tui/context"
 	"github.com/Joker-of-Gotham/gitdex/internal/tui/oplog"
 	"github.com/Joker-of-Gotham/gitdex/internal/tui/theme"
 )
@@ -383,13 +384,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			switch recovery {
 			case contract.RecoverySkip:
-				// Non-fatal (already exists, nothing to commit): continue to next suggestion.
 				m.opLog.Add(oplog.Entry{
 					Type:    oplog.EntryStateRefresh,
-					Summary: fmt.Sprintf("Non-fatal failure (skip): %s", s.Error),
+					Summary: fmt.Sprintf("Non-fatal (skip): %s", s.Error),
 				})
 				if m.suggIdx < len(m.suggestions) && (m.mode == "auto" || m.mode == "cruise" || m.runAllMode) {
 					return m, m.executeNext()
+				}
+				if m.suggIdx >= len(m.suggestions) {
+					m.compressCurrentRound()
+					m.runAllMode = false
+					m.consecutiveReplans = 0
+					_ = m.orchestrator.FlushLog()
+					return m, tea.Batch(m.refreshGitInfo(), m.updateGoalProgress())
 				}
 				return m, m.refreshGitInfo()
 
@@ -741,10 +748,24 @@ func (m Model) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	if key == "tab" && !m.composerFocus {
 		m.tabsComp.Next()
+		m.programCtx.View = m.tabsComp.CurrentView()
+		if m.tabsComp.CurrentView() == tuictx.ConfigView {
+			m.page = PageConfig
+			m.configMenuIdx = 0
+		} else {
+			m.page = PageMain
+		}
 		return m, nil
 	}
 	if key == "shift+tab" && !m.composerFocus {
 		m.tabsComp.Prev()
+		m.programCtx.View = m.tabsComp.CurrentView()
+		if m.tabsComp.CurrentView() == tuictx.ConfigView {
+			m.page = PageConfig
+			m.configMenuIdx = 0
+		} else {
+			m.page = PageMain
+		}
 		return m, nil
 	}
 
