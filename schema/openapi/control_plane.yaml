@@ -1,0 +1,5 @@
+openapi: 3.1.0
+info:
+  title: Gitdex Control Plane API
+  version: 0.0.0-starter
+paths: {}

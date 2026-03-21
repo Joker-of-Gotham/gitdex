@@ -1,23 +1,8 @@
 run:
-  go: "1.26"
   timeout: 5m
 
 linters:
   enable:
-    - govet
     - errcheck
-    - staticcheck
-    - unused
-    - gosimple
-    - ineffassign
-    - gosec
     - gofmt
-    - goimports
-
-linters-settings:
-  govet:
-    enable-all: true
-    disable:
-      - fieldalignment
-  errcheck:
-    check-type-assertions: true
+    - govet

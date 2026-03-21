@@ -1,0 +1,22 @@
+version: "3"
+
+tasks:
+  test:
+    cmds:
+      - go test ./...
+
+  run:
+    cmds:
+      - go run ./cmd/gitdex --help
+
+  daemon:
+    cmds:
+      - go run ./cmd/gitdexd run
+
+  completion:powershell:
+    cmds:
+      - go run ./cmd/gitdex completion powershell
+
+  fmt:
+    cmds:
+      - gofmt -w ./cmd ./internal ./test

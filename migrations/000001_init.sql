@@ -1,0 +1,1 @@
+-- Starter placeholder migration: initialize core tables.

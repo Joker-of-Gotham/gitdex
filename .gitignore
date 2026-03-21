@@ -1,21 +1,8 @@
-# Build artifacts
-/bin/
-/dist/
-*.exe
-*.exe~
-*.out
-*.test
-
-# Local runtime data
-.gitdex/
-.gitmanual/
-/_bmad-output/
-
-# Tooling caches
-.cursor/
-.opencode/
-/.opencode/node_modules/
-
-# OS/editor noise
 .DS_Store
-Thumbs.db
+.env
+.idea/
+.vscode/
+bin/
+dist/
+coverage.out
+*.test

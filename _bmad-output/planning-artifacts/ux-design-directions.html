@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gitdex Design Directions</title>
+  <style>
+    :root {
+      --bg: #0b1120;
+      --panel: #121a2b;
+      --panel-2: #182338;
+      --border: #26344f;
+      --text: #edf3fb;
+      --muted: #96a6c4;
+      --accent: #2c6bed;
+      --focus: #0f9fb5;
+      --success: #1c8c5e;
+      --warning: #b7791f;
+      --danger: #c44536;
+      --radius: 20px;
+      --shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--text);
+      font-family: "IBM Plex Sans", "Segoe UI", Arial, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(44,107,237,0.18), transparent 20%),
+        radial-gradient(circle at 80% 10%, rgba(15,159,181,0.14), transparent 24%),
+        linear-gradient(135deg, #09101b 0%, #0f1829 44%, #0b1220 100%);
+      min-height: 100vh;
+    }
+
+    .page {
+      width: min(1480px, calc(100vw - 40px));
+      margin: 0 auto;
+      padding: 38px 0 72px;
+    }
+
+    .hero {
+      display: grid;
+      gap: 12px;
+      margin-bottom: 28px;
+    }
+
+    .eyebrow {
+      color: #97bcff;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(34px, 6vw, 72px);
+      line-height: 0.94;
+      letter-spacing: -0.05em;
+      max-width: 900px;
+    }
+
+    .intro {
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.65;
+      max-width: 920px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 18px;
+    }
+
+    .direction {
+      background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+
+    .direction header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+      padding: 18px 18px 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .direction h2 {
+      margin: 0;
+      font-size: 24px;
+      letter-spacing: -0.03em;
+    }
+
+    .tag {
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .direction p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.58;
+      padding: 0 18px 14px;
+    }
+
+    .frame {
+      margin: 0 18px 18px;
+      border-radius: 16px;
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,0.08);
+      overflow: hidden;
+      font-family: "IBM Plex Mono", "Cascadia Code", Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.48;
+    }
+
+    .frame-top {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      color: rgba(255,255,255,0.66);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.32);
+    }
+
+    .canvas {
+      min-height: 230px;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .split-3, .split-2 {
+      display: grid;
+      gap: 10px;
+    }
+
+    .split-3 { grid-template-columns: 0.9fr 1.4fr 1fr; }
+    .split-2 { grid-template-columns: 1fr 1fr; }
+
+    .box {
+      background: var(--panel-2);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 14px;
+      padding: 10px;
+    }
+
+    .box .title {
+      color: rgba(255,255,255,0.56);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+
+    .line { color: rgba(255,255,255,0.88); }
+    .muted { color: rgba(255,255,255,0.52); }
+    .accent { color: var(--accent); }
+    .focus { color: var(--focus); }
+    .success { color: var(--success); }
+    .warning { color: var(--warning); }
+    .danger { color: var(--danger); }
+
+    .chosen {
+      margin-top: 28px;
+      padding: 22px 24px;
+      background: linear-gradient(135deg, rgba(44,107,237,0.14), rgba(15,159,181,0.10));
+      border: 1px solid rgba(110, 159, 255, 0.24);
+      border-radius: 20px;
+    }
+
+    .chosen h3 {
+      margin: 0 0 8px;
+      font-size: 22px;
+      letter-spacing: -0.02em;
+    }
+
+    .chosen p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.65;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="hero">
+      <div class="eyebrow">Gitdex UX Asset</div>
+      <h1>Design directions for a governed terminal cockpit.</h1>
+      <div class="intro">
+        这些方向不是网页首页草图，而是 Gitdex 终端体验的组织方式探索。核心问题只有一个：如何在一个终端里同时容纳状态、计划、治理、执行、证据和接管。
+      </div>
+    </div>
+
+    <div class="grid">
+      <section class="direction">
+        <header><h2>Ops Cockpit</h2><div class="tag">Scanning first</div></header>
+        <p>首页优先是态势驾驶舱，适合值守、巡航和持续观察。</p>
+        <div class="frame">
+          <div class="frame-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span>cockpit</div>
+          <div class="canvas split-3">
+            <div class="box"><div class="title">Queue</div><div class="line">task #184</div><div class="line warning">approval pending</div><div class="line success">2 done</div></div>
+            <div class="box"><div class="title">Summary</div><div class="line accent">repo drift / 3 actions</div><div class="line">issues 12 / prs 5</div><div class="line muted">workflow stable</div></div>
+            <div class="box"><div class="title">Risk</div><div class="line">policy allowed</div><div class="line danger">protected branch blocked</div></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="direction">
+        <header><h2>Review Desk</h2><div class="tag">Plan-centric</div></header>
+        <p>把结构化计划做成绝对主角，适合审查、审批和解释。</p>
+        <div class="frame">
+          <div class="frame-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span>plan review</div>
+          <div class="canvas split-2">
+            <div class="box"><div class="title">Plan</div><div class="line">1. fetch upstream</div><div class="line">2. compare head</div><div class="line warning">3. propose patch</div></div>
+            <div class="box"><div class="title">Evidence</div><div class="line">origin/main +24</div><div class="line focus">open diff</div><div class="line muted">review comments 2</div></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="direction">
+        <header><h2>Command Ledger</h2><div class="tag">Minimalist</div></header>
+        <p>强调命令、结果、审计链和导出，适合强 CLI 用户。</p>
+        <div class="frame">
+          <div class="frame-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span>ledger</div>
+          <div class="canvas">
+            <div class="box"><div class="title">Command</div><div class="line accent">gitdex plan sync-upstream --dry-run</div></div>
+            <div class="box"><div class="title">Output</div><div class="line">plan compiled</div><div class="line success">risk low</div><div class="line muted">export json / yaml / report</div></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="direction">
+        <header><h2>Investigation Board</h2><div class="tag">Failure-first</div></header>
+        <p>突出 timeline、证据和对象联动，适合异常与值班场景。</p>
+        <div class="frame">
+          <div class="frame-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span>handoff</div>
+          <div class="canvas split-2">
+            <div class="box"><div class="title">Timeline</div><div class="line">step 1 ok</div><div class="line">step 2 ok</div><div class="line danger">step 3 timeout</div></div>
+            <div class="box"><div class="title">Take Over</div><div class="line focus">open handoff pack</div><div class="line">retry repo only</div><div class="line muted">freeze campaign</div></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="direction">
+        <header><h2>Campaign Radar</h2><div class="tag">Fleet-centric</div></header>
+        <p>把多仓库治理做成矩阵和波次推进，适合 platform operator。</p>
+        <div class="frame">
+          <div class="frame-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span>campaign</div>
+          <div class="canvas">
+            <div class="box"><div class="title">Matrix</div><div class="line success">repo-a approved</div><div class="line warning">repo-b pending</div><div class="line danger">repo-c blocked</div></div>
+            <div class="box"><div class="title">Wave</div><div class="line accent">wave 1 / 4 repos</div><div class="line">exclude / retry / approve next</div></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="direction">
+        <header><h2>Night Shift Console</h2><div class="tag">Background ops</div></header>
+        <p>强调后台巡航、摘要、静默监控和紧急冻结。</p>
+        <div class="frame">
+          <div class="frame-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span>night shift</div>
+          <div class="canvas">
+            <div class="box"><div class="title">Shift Summary</div><div class="line">6 tasks completed</div><div class="line">1 task blocked</div><div class="line muted">next wake-up: 07:00</div></div>
+            <div class="box"><div class="title">Controls</div><div class="line danger">freeze deploys</div><div class="line focus">inspect blocker</div></div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="chosen">
+      <h3>Chosen Direction: Calm Ops Cockpit</h3>
+      <p>
+        推荐采用 `Ops Cockpit + Review Desk + Campaign Radar` 的混合方案：默认首页用于扫描与接管，计划审查始终可一跳进入，fleet / campaign 在信息架构上复用同一套对象和状态语法。这样既不把 Gitdex 做成聊天窗，也不把它做成只会显示日志的监控台。
+      </p>
+    </div>
+  </div>
+</body>
+</html>

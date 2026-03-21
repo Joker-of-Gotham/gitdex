@@ -1,51 +1,18 @@
-APP_NAME := gitdex
-CMD_PATH := ./cmd/gitdex
-BIN_DIR  := bin
-VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+GO ?= go
 
-GOOS     ?= $(shell go env GOOS)
-GOARCH   ?= $(shell go env GOARCH)
-
-ifeq ($(GOOS),windows)
-  EXT := .exe
-else
-  EXT :=
-endif
-
-DEV_BIN     := $(BIN_DIR)/$(APP_NAME)$(EXT)
-RELEASE_BIN := $(BIN_DIR)/$(APP_NAME)-$(GOOS)-$(GOARCH)$(EXT)
-
-LDFLAGS := -ldflags "-s -w -X main.version=$(VERSION)"
-
-.PHONY: build release release-assets test race clean fmt lint cutover-preflight
-
-build:
-	@mkdir -p $(BIN_DIR)
-	go build $(LDFLAGS) -o $(DEV_BIN) $(CMD_PATH)
-	@echo "Built: $(DEV_BIN)"
-
-release:
-	@mkdir -p $(BIN_DIR)
-	CGO_ENABLED=0 go build $(LDFLAGS) -o $(RELEASE_BIN) $(CMD_PATH)
-	@echo "Built: $(RELEASE_BIN)"
-
-release-assets:
-	./scripts/build.sh $(VERSION) dist
+.PHONY: test run daemon completion-powershell fmt
 
 test:
-	go test ./...
+	$(GO) test ./...
 
-race:
-	go test -race ./...
+run:
+	$(GO) run ./cmd/gitdex --help
 
-clean:
-	rm -rf $(BIN_DIR)
+daemon:
+	$(GO) run ./cmd/gitdexd run
+
+completion-powershell:
+	$(GO) run ./cmd/gitdex completion powershell
 
 fmt:
-	gofmt -w .
-
-lint:
-	go vet ./...
-
-cutover-preflight:
-	./scripts/v3-cutover-preflight.sh
+	gofmt -w ./cmd ./internal ./test

@@ -1,280 +1,46 @@
-# gitdex
+# Gitdex
 
-<div align="center">
-  <img src="docs/assets/readme-hero.svg" alt="gitdex hero preview" width="960" />
-  <p><strong>AI-native Git workflow for local repositories.</strong></p>
-  <p>Visible context, memory, raw model output, reasoning, Git state, and execution results in one inspectable TUI.</p>
-  <p>
-    <a href="https://github.com/Joker-of-Gotham/gitdex/releases"><img alt="latest release" src="https://img.shields.io/github/v/release/Joker-of-Gotham/gitdex?display_name=tag&style=flat-square&label=release&color=173B63" /></a>
-    <a href="https://github.com/Joker-of-Gotham/gitdex/actions/workflows/ci.yml"><img alt="ci" src="https://img.shields.io/github/actions/workflow/status/Joker-of-Gotham/gitdex/ci.yml?branch=main&style=flat-square&label=ci" /></a>
-    <a href="https://github.com/Joker-of-Gotham/gitdex/actions/workflows/codeql.yml"><img alt="codeql" src="https://img.shields.io/github/actions/workflow/status/Joker-of-Gotham/gitdex/codeql.yml?branch=main&style=flat-square&label=codeql" /></a>
-    <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/Joker-of-Gotham/gitdex?style=flat-square&color=F2B15A" /></a>
-    <a href="https://github.com/Joker-of-Gotham/gitdex/stargazers"><img alt="stars" src="https://img.shields.io/github/stars/Joker-of-Gotham/gitdex?style=flat-square&color=10304F" /></a>
-    <a href="https://github.com/Joker-of-Gotham/gitdex/network/members"><img alt="forks" src="https://img.shields.io/github/forks/Joker-of-Gotham/gitdex?style=flat-square&color=31556F" /></a>
-  </p>
-  <p>
-    <a href="docs/GETTING_STARTED.md"><img alt="quick start" src="https://img.shields.io/badge/Quick%20Start-From%20Zero-173B63?style=flat-square" /></a>
-    <a href="docs/README_zh.md"><img alt="docs zh" src="https://img.shields.io/badge/Docs-%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-F2B15A?style=flat-square&labelColor=6F4611" /></a>
-    <a href="docs/DEPLOYMENT.md"><img alt="deployment" src="https://img.shields.io/badge/Deployment-Release%20Flow-DCEFF7?style=flat-square&labelColor=31556F" /></a>
-    <a href="docs/PUBLISHING_TO_GITHUB.md"><img alt="publishing" src="https://img.shields.io/badge/Publishing-v1.0.0-10304F?style=flat-square" /></a>
-  </p>
-  <p>
-    <a href="README.md"><img alt="readme" src="https://img.shields.io/badge/Readme-Product%20Guide-173B63?style=flat-square" /></a>
-    <a href="LICENSE"><img alt="mit license" src="https://img.shields.io/badge/License-MIT-F2B15A?style=flat-square&labelColor=6F4611" /></a>
-    <a href="CODE_OF_CONDUCT.md"><img alt="code of conduct" src="https://img.shields.io/badge/Community-Code%20of%20Conduct-DCEFF7?style=flat-square&labelColor=31556F" /></a>
-    <a href="CONTRIBUTING.md"><img alt="contributing" src="https://img.shields.io/badge/Contributing-PR%20Guide-10304F?style=flat-square" /></a>
-    <a href="SECURITY.md"><img alt="security policy" src="https://img.shields.io/badge/Security-Policy-31556F?style=flat-square" /></a>
-    <a href="https://github.com/Joker-of-Gotham/gitdex/releases/latest"><img alt="latest assets" src="https://img.shields.io/badge/Assets-Latest%20Release-173B63?style=flat-square" /></a>
-  </p>
-  <p>
-    <img alt="topic git" src="https://img.shields.io/badge/git-workflow-173B63?style=flat-square" />
-    <img alt="topic tui" src="https://img.shields.io/badge/terminal-ui-10304F?style=flat-square" />
-    <img alt="topic providers" src="https://img.shields.io/badge/providers-ollama%20%7C%20openai%20%7C%20deepseek-F2B15A?style=flat-square&labelColor=6F4611" />
-    <img alt="topic observability" src="https://img.shields.io/badge/observability-visible%20ai%20path-DCEFF7?style=flat-square&labelColor=31556F" />
-    <img alt="topic memory" src="https://img.shields.io/badge/memory-persistent-9EC5D9?style=flat-square&labelColor=12314F" />
-    <img alt="topic languages" src="https://img.shields.io/badge/lang-en%20%7C%20zh%20%7C%20ja-F7F1E8?style=flat-square&labelColor=31556F" />
-  </p>
-</div>
+Gitdex is a terminal-first control plane for Git, GitHub, and governed automation. It ships as a Go CLI (`gitdex`), an optional daemon (`gitdexd`), and a full-screen Bubble Tea TUI for interactive operations.
 
-## Start Here
+## TUI
 
-| I want to... | Go to... |
-| --- | --- |
-| Run gitdex right now | [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) |
-| Read the Chinese overview | [docs/README_zh.md](docs/README_zh.md) |
-| Walk through a real TUI session | [docs/OPERATION_DEMO_zh.md](docs/OPERATION_DEMO_zh.md) |
-| Understand release and deployment | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
-| Publish `v1.0.0` to GitHub | [docs/PUBLISHING_TO_GITHUB.md](docs/PUBLISHING_TO_GITHUB.md) |
+- **Navigation**: F1–F5 switch Dashboard, Chat, Explorer, Workspace, and Settings; command palette (`Ctrl+K`-style binding per keymap); inspector toggle; theme cycling; **mouse** enabled via Bubble Tea v2 `View.MouseMode` (`MouseModeCellMotion`) so the terminal sends wheel/click events to the app.
+- **Refresh**: `Ctrl+R` reloads data for the active view (repos and health on Dashboard; Explorer file tree, GitHub objects, and current file preview; Workspace plans/tasks/evidence from summary or stores; Settings from disk; Chat is unchanged).
+- **Explorer**: GitHub-oriented tabs (PRs, issues, workflows, deployments, releases) and **Git** tabs (files, commits, branches) are grouped as mega-tabs; `[` / `]` switch groups; number keys apply within the current group.
+- **Workspace**: Plans, tasks, evidence, cruise status, and approval queue; **Enter** on a plan opens a scrollable steps/tasks drill; store-backed plans include compiled steps and linked tasks.
+- **Chat**: LLM-assisted session with streaming (interrupt with `Esc` / `Ctrl+C`).
 
-## Repository Guide
+## Git integration
 
-| Surface | Purpose |
-| --- | --- |
-| [README.md](README.md) | Product overview, quick navigation, and current release surface |
-| [LICENSE](LICENSE) | MIT terms for reuse and distribution |
-| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community expectations for issues, discussions, and pull requests |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Local setup, quality gate, branch flow, and PR guidance |
-| [SECURITY.md](SECURITY.md) | Supported versions and the security reporting path |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | GitHub Actions release design, asset layout, and repo settings |
-| [docs/PUBLISHING_TO_GITHUB.md](docs/PUBLISHING_TO_GITHUB.md) | Step-by-step publish checklist for this repository |
+Local repository discovery, file tree and preview, commits, branches, diffs, editing, stash/tags/worktrees/remotes/reflog views, and Git execution through the tool/autonomy layers. Explorer ties local paths to GitHub metadata when a remote is configured.
 
-## Why gitdex
+## GitHub integration
 
-`gitdex` is not a chat box wrapped around Git. It is a local-first Git workbench that keeps the full decision loop visible:
+Authenticated client usage for repositories, PRs, issues, Actions runs, deployments, releases, and remote file access when not working from a full local clone.
 
-- Repository state is always on screen.
-- LLM context partitions and budget are inspectable.
-- Memory is persistent, file-backed, and reviewable.
-- Raw output, cleaned output, reasoning, and execution results are exposed.
-- View-only advisories and executable commands are explicitly separated.
-- First-run language selection and runtime switching are built into the TUI.
+## Autonomy and daemon
 
-## Visual Tour
+- **Autonomy**: Planned actions, policy/risk awareness, and execution flows used from chat and automation paths.
+- **Daemon** (`gitdex daemon run` / `gitdexd run`): HTTP control plane, webhooks, and cruise-style processing aligned with the internal autonomy engine.
 
-The assets below are safe README placeholders today. You can replace the SVG files in [`docs/assets/`](docs/assets) with real product captures later without touching the README layout.
+## File operations
 
-| Main Surface | Observability Inspector | Advisory Flow |
-| --- | --- | --- |
-| ![gitdex main surface](docs/assets/readme-hero.svg) | ![gitdex observability](docs/assets/readme-observability.svg) | ![gitdex advisory flow](docs/assets/readme-advisory.svg) |
-| Suggestions, Git areas, and the operation log stay in one working surface. | Workflow, timeline, context, memory, raw output, result, and thinking panels stay inspectable. | View-only advice is marked as reviewed instead of pretending to run a command. |
+Create/move/delete, batch renames, patches, staging helpers, and external editor handoff where implemented in the Files explorer tab.
 
-## Product Snapshot
-
-| Surface | Why it matters |
-| --- | --- |
-| Language selection on first run | The product is usable immediately instead of assuming one locale forever. |
-| Inspectable AI path | You can see what the model saw, what it returned, and what was executed. |
-| Advisory deduplication | View-only suggestions stop looping after review. |
-| Release-ready repository | CI, CodeQL, release assets, community files, and deployment docs are aligned. |
-
-## What Ships Today
-
-| Area | What you can inspect |
-| --- | --- |
-| Git state | Working tree, staging area, branch, upstream, remotes, stash, and selected repository metadata |
-| AI pipeline | Context budget, prompt partitions, knowledge hits, recent operation injection, raw output, cleaned output, and verifier feedback |
-| Workflow | Current stage, active goal, pending suggestions, execution state, and recent events |
-| Memory | Repo memory path, update time, preferences, repo patterns, resolved goals, and session goal history |
-| Interaction | Advisory, command, file-write, and fill-in suggestions with explicit handling and logs |
-| Runtime setup | First-run language selection, model selection, and runtime language switching with `L` |
-
-## Release And Deployment
-
-- Every `v*` tag triggers a GitHub Actions release pipeline.
-- The release job builds `windows-amd64`, `windows-arm64`, `linux-amd64`, `linux-arm64`, `macos-amd64`, and `macos-arm64`.
-- The GitHub release uploads raw binaries, `gitdex-source.zip`, and `checksums.txt`.
-- CI runs `go vet`, `go test`, `go build`, lint, and a dedicated race-test job.
-- CodeQL runs on pushes, pull requests, and a weekly schedule.
-
-## Quick Start
-
-Requirements:
-
-- Git
-- Go
-- One AI provider:
-- Ollama with at least one local model, for example `qwen2.5:3b`
-- Or OpenAI / DeepSeek credentials plus a configured model name
-
-Run from source:
-
-```bash
-go run ./cmd/gitdex
-```
-
-Build and run on macOS or Linux:
-
-```bash
-make test
-make build
-./bin/gitdex
-```
-
-Build and run on Windows:
+## Quick start
 
 ```powershell
-.\build.ps1 -Target test
-.\build.ps1 -Target build
-.\bin\gitdex.exe
+go run ./cmd/gitdex --help
+go run ./cmd/gitdex doctor
+go run ./cmd/gitdex config show
 ```
 
-## First 3 Minutes
+Example config: `configs/gitdex.example.yaml`. Precedence: flags > environment (`GITDEX_*`) > repo `.gitdex/config.yaml` > user config > defaults.
 
-1. Start `gitdex` inside a real Git repository.
-2. The system auto-detects your Ollama models and begins analysis.
-3. Press `Tab` to focus the input bar, then type `/help` to see all commands.
-4. Use `/goal <description>` to set a goal, or `/run accept` / `/run all` (manual mode) to execute suggestions.
-5. Press `Esc` to open the configuration page, then navigate to change model, mode, language, or theme.
-6. Use `[` and `]` to switch focus between panels, then `PgUp`/`PgDn`/mouse wheel to scroll.
-
-## Slash Commands
-
-All interaction uses `/` commands typed in the input bar:
-
-- `/goal <description>` — set a new goal for Gitdex to achieve
-- `/run accept` — execute the next pending suggestion (manual mode)
-- `/run all` — execute all pending suggestions (manual mode)
-- `/mode manual|auto|cruise` — switch operation mode
-- `/interval <seconds>` — set cruise patrol interval (min 60s)
-- `/creative` — manually trigger the creative flow
-- `/config` — open configuration page (also accessible via `Esc`)
-- `/analyze` — re-run analysis
-- `/test` — run LLM connectivity tests
-- `/clear` — clear the log panel
-- `/help` — show command list
-
-## Navigation Keys
-
-- `Tab` / `Shift+Tab` — toggle input bar focus
-- `[` / `]` — switch focus across panels (Suggestions, Git, Goals, Log)
-- `up` / `down` / `PgUp` / `PgDn` — scroll the focused panel
-- `Ctrl+U` / `Ctrl+D` — half-page scroll
-- Mouse wheel — scroll the panel under cursor
-- `Esc` — open/close configuration page
-- `r` — refresh state and re-analyze
-- `q` / `Ctrl+C` — quit
-
-## Documentation
-
-- [Chinese overview](docs/README_zh.md)
-- [Getting started from zero](docs/GETTING_STARTED.md)
-- [Getting started in Chinese](docs/GETTING_STARTED_zh.md)
-- [Operation demo](docs/OPERATION_DEMO_zh.md)
-- [Deployment design](docs/DEPLOYMENT.md)
-- [Deployment design in Chinese](docs/DEPLOYMENT_zh.md)
-- [Publishing to GitHub](docs/PUBLISHING_TO_GITHUB.md)
-- [Publishing guide in Chinese](docs/PUBLISHING_TO_GITHUB_zh.md)
-- [V3 Big Bang cutover runbook](docs/BIG_BANG_CUTOVER_RUNBOOK.md)
-- [V3 To-Do verification audit](docs/V3_TODO_VERIFICATION_AUDIT.md)
-
-## Configuration
-
-Primary config locations:
-
-- Project: `.gitdexrc`
-- Global on Linux/macOS: `~/.config/gitdex/config.yaml`
-- Global on Windows: `%AppData%\gitdex\config.yaml`
-- Environment variables: `GITDEX_*`
-
-Compatibility reads remain enabled for:
-
-- `.gitmanualrc`
-- legacy global `gitmanual` config directory
-- legacy home memory file under `.gitmanual/`
-- legacy env prefix `GITMANUAL_*`
-
-See [configs/example.gitdexrc](configs/example.gitdexrc) for a project-level example.
-
-Adapter binary overrides (cross-platform robustness):
-
-```yaml
-adapters:
-  git:
-    enabled: true
-    binary: "git"
-  github:
-    gh:
-      enabled: true
-      binary: "gh"
-```
-
-Minimal cloud-provider examples:
-
-```yaml
-llm:
-  provider: "openai"
-  endpoint: "https://api.openai.com/v1"
-  api_key_env: "OPENAI_API_KEY"
-  primary:
-    provider: "openai"
-    model: "gpt-4.1-mini"
-    enabled: true
-```
-
-```yaml
-llm:
-  provider: "deepseek"
-  endpoint: "https://api.deepseek.com"
-  api_key_env: "DEEPSEEK_API_KEY"
-  primary:
-    provider: "deepseek"
-    model: "deepseek-chat"
-    enabled: true
-```
-
-## Forking And Module Path
-
-This repository is aligned to:
-
-```text
-github.com/Joker-of-Gotham/gitdex
-```
-
-If you fork it under a new owner, use one of the helper scripts:
+## Validation
 
 ```powershell
-.\scripts\set-module-path.ps1 -ModulePath github.com/<your-user-or-org>/gitdex
-```
-
-```bash
-./scripts/set-module-path.sh github.com/<your-user-or-org>/gitdex
-```
-
-## Repository Layout
-
-```text
-cmd/gitdex/                 application entrypoint
-configs/                    default and example config
-docs/                       user-facing docs and README assets
-internal/app/               bootstrap and dependency wiring
-internal/config/            config loading, validation, legacy-compatible persistence
-internal/engine/            analysis pipeline, parsing, verification, execution helpers
-internal/git/               Git types, parsers, status watcher, CLI integration
-internal/i18n/              locale loading
-internal/llm/               provider abstraction, Ollama/OpenAI/DeepSeek clients, prompts, response cleanup
-internal/memory/            persistent repository memory
-internal/platform/          GitHub/GitLab/Bitbucket collection
-internal/tui/               Bubble Tea UI and observability panels
-scripts/                    local build and release helper scripts
-test/                       regression coverage
+go test ./...
+go build ./...
+golangci-lint run
 ```

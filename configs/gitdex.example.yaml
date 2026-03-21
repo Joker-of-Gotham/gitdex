@@ -1,0 +1,30 @@
+output: text
+log_level: info
+profile: local
+
+identity:
+  mode: github-app
+  github_app:
+    host: github.com
+    app_id: "123456"
+    installation_id: "987654"
+    private_key_path: /path/to/github-app.pem
+
+daemon:
+  health_address: 127.0.0.1:7777
+
+llm:
+  provider: openai
+  model: gpt-4o-mini
+  api_key: ""
+  endpoint: https://api.openai.com/v1
+
+# Storage backend: memory (default), postgres, sqlite, bbolt
+storage:
+  type: memory
+  # dsn: "postgres://gitdex:secret@localhost:5432/gitdex?sslmode=disable"
+  # dsn: "/home/user/.gitdex/gitdex.sqlite"
+  # dsn: "/home/user/.gitdex/gitdex.db"
+  # max_open_conns: 10
+  # max_idle_conns: 5
+  # auto_migrate: true

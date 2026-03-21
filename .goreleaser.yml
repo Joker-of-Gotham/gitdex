@@ -1,0 +1,27 @@
+project_name: gitdex
+
+builds:
+  - id: gitdex
+    main: ./cmd/gitdex
+    binary: gitdex
+    ldflags:
+      - -s -w -X github.com/your-org/gitdex/internal/app/version.Version={{.Version}}
+    goos:
+      - windows
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+  - id: gitdexd
+    main: ./cmd/gitdexd
+    binary: gitdexd
+    ldflags:
+      - -s -w -X github.com/your-org/gitdex/internal/app/version.Version={{.Version}}
+    goos:
+      - windows
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64

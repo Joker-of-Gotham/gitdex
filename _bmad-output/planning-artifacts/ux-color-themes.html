@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gitdex UX Color Themes</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #121a2d;
+      --border: #22304c;
+      --text: #e7edf7;
+      --muted: #93a4bf;
+      --accent: #2c6bed;
+      --focus: #0f9fb5;
+      --success: #1c8c5e;
+      --warning: #b7791f;
+      --danger: #c44536;
+      --shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Segoe UI", Arial, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(44, 107, 237, 0.18), transparent 26%),
+        radial-gradient(circle at right center, rgba(15, 159, 181, 0.16), transparent 22%),
+        linear-gradient(135deg, #09101d 0%, #101a2a 52%, #0d1523 100%);
+      min-height: 100vh;
+    }
+
+    .page {
+      width: min(1400px, calc(100vw - 40px));
+      margin: 0 auto;
+      padding: 40px 0 72px;
+    }
+
+    .hero {
+      display: grid;
+      gap: 12px;
+      margin-bottom: 28px;
+    }
+
+    .eyebrow {
+      color: #8fb8ff;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(36px, 6vw, 68px);
+      line-height: 0.96;
+      letter-spacing: -0.04em;
+      max-width: 900px;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.6;
+      max-width: 880px;
+    }
+
+    .theme-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 18px;
+      margin-top: 24px;
+    }
+
+    .theme-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px;
+      box-shadow: var(--shadow);
+    }
+
+    .theme-card h2 {
+      margin: 0 0 8px;
+      font-size: 24px;
+      letter-spacing: -0.03em;
+    }
+
+    .theme-card p {
+      margin: 0 0 14px;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .swatches {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .swatch {
+      aspect-ratio: 1;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .sample {
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(0,0,0,0.14);
+    }
+
+    .sample-top {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      font-size: 12px;
+      color: rgba(255,255,255,0.76);
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.35);
+    }
+
+    .terminal {
+      display: grid;
+      gap: 8px;
+      padding: 14px 14px 16px;
+      font-family: "IBM Plex Mono", "Cascadia Code", Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .row {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: 1.2fr 1fr;
+    }
+
+    .pane {
+      padding: 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.06);
+      background: rgba(255,255,255,0.03);
+      min-height: 110px;
+    }
+
+    .pane h3 {
+      margin: 0 0 8px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: rgba(255,255,255,0.6);
+    }
+
+    .line { color: rgba(255,255,255,0.9); }
+    .muted { color: rgba(255,255,255,0.55); }
+    .accent { color: var(--accent); }
+    .focus { color: var(--focus); }
+    .success { color: var(--success); }
+    .warning { color: var(--warning); }
+    .danger { color: var(--danger); }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .chip {
+      padding: 8px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      border: 1px solid rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.82);
+      background: rgba(255,255,255,0.04);
+    }
+
+    .footer-note {
+      margin-top: 26px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="hero">
+      <div class="eyebrow">Gitdex UX Asset</div>
+      <h1>Terminal-native color systems for trust, risk, and flow.</h1>
+      <div class="subtitle">
+        这些主题不是为了装饰终端，而是为了验证 Gitdex 在驾驶舱、计划审查、campaign 编排和 handoff 场景中的语义色是否足够清楚。
+      </div>
+    </div>
+
+    <div class="theme-grid">
+      <section class="theme-card" style="--panel:#10192b;--border:#25344e;--accent:#2c6bed;--focus:#0f9fb5;--success:#1c8c5e;--warning:#b7791f;--danger:#c44536;">
+        <h2>Calm Ops</h2>
+        <p>默认推荐。冷静、可信、适合长时间值守与审查。</p>
+        <div class="swatches">
+          <div class="swatch" style="background:#111827"></div>
+          <div class="swatch" style="background:#334155"></div>
+          <div class="swatch" style="background:#2c6bed"></div>
+          <div class="swatch" style="background:#1c8c5e"></div>
+          <div class="swatch" style="background:#c44536"></div>
+        </div>
+        <div class="sample">
+          <div class="sample-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span>gitdex cockpit</div>
+          <div class="terminal">
+            <div class="line accent">repo status: drift detected / 3 suggested actions</div>
+            <div class="row">
+              <div class="pane">
+                <h3>Plan</h3>
+                <div class="line">1. fetch upstream</div>
+                <div class="line">2. preview branch sync</div>
+                <div class="line warning">3. review impact before apply</div>
+              </div>
+              <div class="pane">
+                <h3>Policy</h3>
+                <div class="line success">allowed: low-risk repo maintenance</div>
+                <div class="line muted">approval: not required</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="theme-card" style="--panel:#16181d;--border:#2a2f37;--accent:#d97706;--focus:#0ea5a8;--success:#22a36f;--warning:#d4a017;--danger:#d84d42;">
+        <h2>Ledger Bronze</h2>
+        <p>偏向命令账本与审计感，适合 text-heavy 结果阅读。</p>
+        <div class="swatches">
+          <div class="swatch" style="background:#18181b"></div>
+          <div class="swatch" style="background:#3f3f46"></div>
+          <div class="swatch" style="background:#d97706"></div>
+          <div class="swatch" style="background:#22a36f"></div>
+          <div class="swatch" style="background:#d84d42"></div>
+        </div>
+        <div class="sample">
+          <div class="sample-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span>gitdex ledger</div>
+          <div class="terminal">
+            <div class="line accent">task #184 compiled from natural-language intent</div>
+            <div class="row">
+              <div class="pane">
+                <h3>Audit</h3>
+                <div class="line">trigger: chat request</div>
+                <div class="line">scope: origin/main</div>
+                <div class="line danger">risk: protected files untouched</div>
+              </div>
+              <div class="pane">
+                <h3>Next</h3>
+                <div class="line focus">review structured plan</div>
+                <div class="line muted">export handoff / report</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="theme-card" style="--panel:#112125;--border:#28525a;--accent:#0ea5a8;--focus:#7dd3fc;--success:#2fb670;--warning:#d19a2e;--danger:#dd5a4b;">
+        <h2>Signal Radar</h2>
+        <p>强调 campaign 与 fleet 观察，适合多仓库态势面。</p>
+        <div class="swatches">
+          <div class="swatch" style="background:#0f172a"></div>
+          <div class="swatch" style="background:#164e63"></div>
+          <div class="swatch" style="background:#0ea5a8"></div>
+          <div class="swatch" style="background:#2fb670"></div>
+          <div class="swatch" style="background:#dd5a4b"></div>
+        </div>
+        <div class="sample">
+          <div class="sample-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span>gitdex campaign</div>
+          <div class="terminal">
+            <div class="line focus">campaign sync-upstream / 12 repos / wave 1 running</div>
+            <div class="row">
+              <div class="pane">
+                <h3>Matrix</h3>
+                <div class="line success">repo-a approved</div>
+                <div class="line warning">repo-b pending review</div>
+                <div class="line danger">repo-c blocked by policy</div>
+              </div>
+              <div class="pane">
+                <h3>Operator</h3>
+                <div class="line">exclude / retry / take over</div>
+                <div class="line muted">evidence updates in realtime</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="theme-card" style="--panel:#1f1728;--border:#4c3759;--accent:#ef4444;--focus:#f97316;--success:#4ade80;--warning:#f59e0b;--danger:#fb7185;">
+        <h2>Incident Desk</h2>
+        <p>偏值班与异常诊断，适合 handoff、冻结、恢复场景。</p>
+        <div class="swatches">
+          <div class="swatch" style="background:#1f1728"></div>
+          <div class="swatch" style="background:#5b4b8a"></div>
+          <div class="swatch" style="background:#ef4444"></div>
+          <div class="swatch" style="background:#4ade80"></div>
+          <div class="swatch" style="background:#f59e0b"></div>
+        </div>
+        <div class="sample">
+          <div class="sample-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span>gitdex handoff</div>
+          <div class="terminal">
+            <div class="line danger">task blocked / manual takeover required</div>
+            <div class="row">
+              <div class="pane">
+                <h3>Failure</h3>
+                <div class="line">step 3 failed: workflow timeout</div>
+                <div class="line muted">last success: patch simulation</div>
+              </div>
+              <div class="pane">
+                <h3>Recovery</h3>
+                <div class="line focus">open handoff pack</div>
+                <div class="line warning">pause fleet / retry repo only</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="chips">
+      <div class="chip">语义色固定，亮暗主题可变</div>
+      <div class="chip">颜色永不单独承担状态语义</div>
+      <div class="chip">默认推荐 Calm Ops</div>
+      <div class="chip">Campaign 建议增强青色信号</div>
+      <div class="chip">值班诊断可切换 Incident Desk</div>
+    </div>
+
+    <div class="footer-note">
+      结论：Gitdex 最适合采用低饱和的“冷静运维”基础色板，以蓝青系承担主交互和焦点，以绿色、琥珀色、红色承担治理语义。过于炫技的高反差主题不利于长时间值守与审查。
+    </div>
+  </div>
+</body>
+</html>
